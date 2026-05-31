@@ -1,0 +1,9 @@
+# lemonet built-in ads and trackers pack (small default; replace with a full list later)
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+adservice.google.com
+google-analytics.com
+scorecardresearch.com
+moatads.com
+adnxs.com

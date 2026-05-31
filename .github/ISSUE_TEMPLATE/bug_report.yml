@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a problem with lemonet
+labels: [bug]
+body:
+  - type: checkboxes
+    id: authorization
+    attributes:
+      label: Authorized use
+      options:
+        - label: I only used lemonet on a network I own or am authorized to manage.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: lemonet version
+      placeholder: v0.1.0 or commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant terminal output. Do not include data from networks you do not control.
+      render: shell

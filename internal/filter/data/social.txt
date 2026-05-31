@@ -1,0 +1,8 @@
+# lemonet built-in social media pack (small default)
+facebook.com
+instagram.com
+tiktok.com
+twitter.com
+x.com
+snapchat.com
+reddit.com
