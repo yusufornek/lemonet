@@ -6,6 +6,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/netip"
 	"sync"
@@ -117,6 +118,7 @@ func (c *Controller) Scan(ctx context.Context) ([]DeviceView, error) {
 	for _, d := range found {
 		c.table.Upsert(d)
 	}
+	log.Printf("scan: discovered %d device(s) on %s", len(found), c.iface.Name)
 	return c.Devices(), nil
 }
 

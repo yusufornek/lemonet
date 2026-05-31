@@ -1,9 +1,15 @@
 package engine
 
 import (
+	"time"
+
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/pcap"
 )
+
+// readTimeout bounds a blocking Recv so the capture loops stay responsive to context
+// cancellation instead of blocking forever when no packet arrives.
+const readTimeout = 250 * time.Millisecond
 
 // Handle is the capture/inject abstraction over a network interface. A pcap-backed
 // implementation is the only path that works on Linux, macOS, and Windows alike.
@@ -22,7 +28,7 @@ type pcapHandle struct {
 // OpenLive opens iface for live capture and injection. snaplen 65536 captures whole frames;
 // a short read timeout keeps Recv responsive to context cancellation by the caller.
 func OpenLive(iface string) (Handle, error) {
-	h, err := pcap.OpenLive(iface, 65536, true, pcap.BlockForever)
+	h, err := pcap.OpenLive(iface, 65536, true, readTimeout)
 	if err != nil {
 		return nil, err
 	}

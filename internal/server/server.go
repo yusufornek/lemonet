@@ -116,7 +116,7 @@ func (s *Server) handleConsent(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	devices, err := s.ctrl.Scan(ctx)
 	if err != nil {

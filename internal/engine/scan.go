@@ -22,6 +22,11 @@ func NewScanner(iface Interface, h Handle, vendor VendorDB) *Scanner {
 	return &Scanner{iface: iface, handle: h, vendor: vendor}
 }
 
+// sweepProbeGap paces the ARP requests. Blasting a whole subnet at once lets the shared pcap
+// handle drop replies that arrive during the send burst, which leaves only the fastest responder
+// (the gateway) visible. A small gap keeps send and receive interleaved.
+const sweepProbeGap = 3 * time.Millisecond
+
 // Sweep ARP-requests every address in the subnet and collects replies until ctx is done.
 // Callers should pass a context with a deadline (a few seconds is plenty on a home LAN).
 func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
@@ -39,8 +44,14 @@ func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
 		if err != nil {
 			continue
 		}
-		if err := s.handle.Send(frame); err != nil {
-			return nil, err
+		// Two probes per host: ARP replies are unreliable and some hosts ignore the first.
+		_ = s.handle.Send(frame)
+		_ = s.handle.Send(frame)
+		select {
+		case <-ctx.Done():
+			<-done
+			return table.List(), nil
+		case <-time.After(sweepProbeGap):
 		}
 	}
 
@@ -67,7 +78,7 @@ func (s *Scanner) ResolveMAC(ctx context.Context, ip net.IP) (net.HardwareAddr, 
 		default:
 		}
 		pkt, err := s.handle.Recv()
-		if err != nil {
+		if err != nil || pkt == nil {
 			continue
 		}
 		arp, ok := arpReply(pkt)
@@ -89,16 +100,16 @@ func (s *Scanner) readReplies(ctx context.Context, table *Table, done chan<- str
 		default:
 		}
 		pkt, err := s.handle.Recv()
-		if err != nil {
+		if err != nil || pkt == nil {
 			continue
 		}
-		arp, ok := arpReply(pkt)
+		arp, ok := arpSender(pkt)
 		if !ok {
 			continue
 		}
 		ip := net.IP(arp.SourceProtAddress)
 		mac := net.HardwareAddr(arp.SourceHwAddress)
-		if ip.Equal(s.iface.IP) {
+		if ip.Equal(s.iface.IP) || ip.Equal(net.IPv4zero) {
 			continue
 		}
 		table.Upsert(Device{
@@ -117,6 +128,20 @@ func arpReply(pkt gopacket.Packet) (*layers.ARP, bool) {
 	}
 	arp, ok := l.(*layers.ARP)
 	if !ok || arp.Operation != layers.ARPReply {
+		return nil, false
+	}
+	return arp, true
+}
+
+// arpSender returns the sender of any ARP packet, request or reply. Harvesting requests too lets
+// the scan learn devices passively from the ARP traffic a busy LAN already produces.
+func arpSender(pkt gopacket.Packet) (*layers.ARP, bool) {
+	l := pkt.Layer(layers.LayerTypeARP)
+	if l == nil {
+		return nil, false
+	}
+	arp, ok := l.(*layers.ARP)
+	if !ok {
 		return nil, false
 	}
 	return arp, true
