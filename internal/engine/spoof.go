@@ -14,6 +14,7 @@ import (
 type SpoofConfig struct {
 	Targets    []Device
 	GatewayIP  net.IP
+	GatewayIP6 net.IP // gateway's IPv6 link-local; when set, targets are also poisoned over NDP
 	GatewayMAC net.HardwareAddr
 	SelfMAC    net.HardwareAddr
 	FullDuplex bool
@@ -62,7 +63,12 @@ func (s *Spoofer) RestoreDevice(t Device) {
 	s.mu.Unlock()
 	for i := 0; i < 4; i++ {
 		if frame, err := BuildARPReply(cfg.GatewayIP, cfg.GatewayMAC, t.IP, t.MAC); err == nil {
-			_ = s.handle.Send(frame)
+			s.send(frame)
+		}
+		if cfg.GatewayIP6 != nil {
+			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
+				s.send(frame)
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -115,6 +121,13 @@ func (s *Spoofer) poisonOnce() {
 				s.send(frame)
 			}
 		}
+		// IPv6: tell the target the gateway's link-local is at our MAC so its IPv6 traffic also
+		// flows through us. Half-duplex (device side) is enough for blocking and filtering.
+		if cfg.GatewayIP6 != nil {
+			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.SelfMAC); err == nil {
+				s.send(frame)
+			}
+		}
 	}
 }
 
@@ -130,11 +143,16 @@ func (s *Spoofer) Restore() error {
 	for i := 0; i < repeats; i++ {
 		for _, t := range cfg.Targets {
 			if frame, err := BuildARPReply(cfg.GatewayIP, cfg.GatewayMAC, t.IP, t.MAC); err == nil {
-				_ = s.handle.Send(frame)
+				s.send(frame)
 			}
 			if cfg.FullDuplex {
 				if frame, err := BuildARPReply(t.IP, t.MAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
-					_ = s.handle.Send(frame)
+					s.send(frame)
+				}
+			}
+			if cfg.GatewayIP6 != nil {
+				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
+					s.send(frame)
 				}
 			}
 		}

@@ -11,10 +11,11 @@ import (
 // Interface is a usable network interface with the local IPv4 details lemonet needs to scan
 // and to craft frames from.
 type Interface struct {
-	Name   string
-	MAC    net.HardwareAddr
-	IP     net.IP
-	Subnet *net.IPNet
+	Name      string
+	MAC       net.HardwareAddr
+	IP        net.IP
+	Subnet    *net.IPNet
+	LinkLocal net.IP // fe80:: address used as the source for NDP, if the interface has one
 }
 
 // ListInterfaces returns interfaces that are up, not loopback, and have an IPv4 address.
@@ -32,7 +33,7 @@ func ListInterfaces() ([]Interface, error) {
 		if ip == nil {
 			continue
 		}
-		out = append(out, Interface{Name: ifi.Name, MAC: ifi.HardwareAddr, IP: ip, Subnet: subnet})
+		out = append(out, Interface{Name: ifi.Name, MAC: ifi.HardwareAddr, IP: ip, Subnet: subnet, LinkLocal: firstLinkLocal(ifi)})
 	}
 	return out, nil
 }
@@ -47,7 +48,25 @@ func LookupInterface(name string) (Interface, error) {
 	if ip == nil {
 		return Interface{}, fmt.Errorf("engine: interface %q has no IPv4 address", name)
 	}
-	return Interface{Name: ifi.Name, MAC: ifi.HardwareAddr, IP: ip, Subnet: subnet}, nil
+	return Interface{Name: ifi.Name, MAC: ifi.HardwareAddr, IP: ip, Subnet: subnet, LinkLocal: firstLinkLocal(*ifi)}, nil
+}
+
+// firstLinkLocal returns the interface's IPv6 link-local (fe80::/10) address, or nil.
+func firstLinkLocal(ifi net.Interface) net.IP {
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ip := ipnet.IP.To16(); ip != nil && ip.To4() == nil && ip.IsLinkLocalUnicast() {
+			return ip
+		}
+	}
+	return nil
 }
 
 func firstIPv4(ifi net.Interface) (net.IP, *net.IPNet) {

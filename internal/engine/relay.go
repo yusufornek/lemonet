@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"net"
 	"net/netip"
 	"sync/atomic"
 	"time"
@@ -46,10 +47,10 @@ type Relay struct {
 	dec     Decider
 	inspect FlowInspector
 
-	// Diagnostic counters (atomic): rx = intercepted IPv4 frames routed, fwd = forwarded,
-	// drop = blocked, delay = shaped. They reveal whether the relay is actually on the path.
-	rx, fwd, drop, delay atomic.Uint64
-	sendErrs             atomic.Uint64
+	// Diagnostic counters (atomic): rx = intercepted frames routed (rx6 = the IPv6 subset),
+	// fwd = forwarded, drop = blocked, delay = shaped. They reveal whether the relay is on the path.
+	rx, rx6, fwd, drop, delay atomic.Uint64
+	sendErrs                  atomic.Uint64
 }
 
 func NewRelay(h Handle, iface Interface, gwMAC []byte, table *Table, dec Decider) *Relay {
@@ -62,7 +63,7 @@ func (r *Relay) SetInspector(i FlowInspector) { r.inspect = i }
 // Run forwards intercepted IPv4 traffic until ctx is cancelled. The BPF filter keeps only IP
 // frames addressed to us, so the relay does not burn cycles on traffic it would ignore anyway.
 func (r *Relay) Run(ctx context.Context) error {
-	_ = r.handle.SetBPF("ether dst " + r.iface.MAC.String() + " and ip")
+	_ = r.handle.SetBPF("ether dst " + r.iface.MAC.String() + " and (ip or ip6)")
 	go r.logStats(ctx)
 
 	for {
@@ -95,8 +96,8 @@ func (r *Relay) logStats(ctx context.Context) {
 				continue
 			}
 			prev = rx
-			log.Printf("relay: rx=%d fwd=%d drop=%d shaped=%d sendErr=%d",
-				rx, r.fwd.Load(), r.drop.Load(), r.delay.Load(), r.sendErrs.Load())
+			log.Printf("relay: rx=%d (ipv6=%d) fwd=%d drop=%d shaped=%d sendErr=%d",
+				rx, r.rx6.Load(), r.fwd.Load(), r.drop.Load(), r.delay.Load(), r.sendErrs.Load())
 		}
 	}
 }
@@ -112,22 +113,32 @@ func (r *Relay) send(frame []byte) {
 }
 
 func (r *Relay) handlePacket(pkt gopacket.Packet) {
-	netLayer := pkt.Layer(layers.LayerTypeIPv4)
-	if netLayer == nil {
-		return
-	}
-	ip := netLayer.(*layers.IPv4)
-
-	dir, device, nextHop, ok := r.route(ip)
-	if !ok {
-		return
-	}
-
 	raw := pkt.Data()
 	if len(raw) < 14 {
 		return
 	}
+
+	var (
+		dir     Direction
+		device  netip.Addr
+		nextHop []byte
+		ok      bool
+		v6      bool
+	)
+	if l := pkt.Layer(layers.LayerTypeIPv4); l != nil {
+		dir, device, nextHop, ok = r.route(l.(*layers.IPv4))
+	} else if l := pkt.Layer(layers.LayerTypeIPv6); l != nil {
+		v6 = true
+		dir, device, nextHop, ok = r.route6(l.(*layers.IPv6), raw)
+	}
+	if !ok {
+		return
+	}
+
 	r.rx.Add(1)
+	if v6 {
+		r.rx6.Add(1)
+	}
 
 	// Never relay an ICMP redirect to a device: a real gateway sends these to steer the device
 	// back to itself, which would undo the poisoning. Dropping them keeps the device on our path.
@@ -178,6 +189,26 @@ func (r *Relay) route(ip *layers.IPv4) (Direction, netip.Addr, []byte, bool) {
 		return Download, dst, d.MAC, true
 	}
 	return 0, netip.Addr{}, nil, false
+}
+
+// route6 handles a captured IPv6 frame. We poison only the device->gateway direction over NDP, so
+// every IPv6 frame reaching us is an upload from a managed device toward the Internet: forward it
+// to the gateway and key policy on that device's IPv4 address (same device, found by MAC), so a
+// rule the user set on the device applies to its IPv6 traffic too.
+func (r *Relay) route6(ip6 *layers.IPv6, raw []byte) (Direction, netip.Addr, []byte, bool) {
+	if !ip6.DstIP.IsGlobalUnicast() {
+		return 0, netip.Addr{}, nil, false
+	}
+	srcMAC := net.HardwareAddr(raw[6:12])
+	dev, ok := r.table.Get(srcMAC)
+	if !ok {
+		return 0, netip.Addr{}, nil, false
+	}
+	key, ok := netip.AddrFromSlice(dev.IP.To4())
+	if !ok {
+		return 0, netip.Addr{}, nil, false
+	}
+	return Upload, key, r.gwMAC, true
 }
 
 // transport returns the transport protocol, destination port, and application payload of a

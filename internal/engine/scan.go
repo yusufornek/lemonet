@@ -135,6 +135,50 @@ func (s *Scanner) ResolveMAC(ctx context.Context, ip net.IP) (net.HardwareAddr, 
 	}
 }
 
+// DiscoverRouterLL solicits a Router Advertisement and returns the router's IPv6 link-local
+// address, needed to poison a device's IPv6 default route. It fails fast when the network has no
+// IPv6 router, in which case the caller simply leaves IPv6 uncontrolled.
+func (s *Scanner) DiscoverRouterLL(ctx context.Context) (net.IP, error) {
+	src := s.iface.LinkLocal
+	if src == nil {
+		src = linkLocalFromMAC(s.iface.MAC)
+	}
+	if src == nil {
+		return nil, fmt.Errorf("engine: interface %s has no link-local address", s.iface.Name)
+	}
+	frame, err := BuildRouterSolicitation(s.iface.MAC, src)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.handle.Send(frame)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("engine: no Router Advertisement received")
+		default:
+		}
+		pkt, err := s.handle.Recv()
+		if err != nil || pkt == nil {
+			continue
+		}
+		if ll := routerAdvertSource(pkt); ll != nil {
+			return ll, nil
+		}
+	}
+}
+
+func routerAdvertSource(pkt gopacket.Packet) net.IP {
+	if pkt.Layer(layers.LayerTypeICMPv6RouterAdvertisement) == nil {
+		return nil
+	}
+	l := pkt.Layer(layers.LayerTypeIPv6)
+	if l == nil {
+		return nil
+	}
+	return l.(*layers.IPv6).SrcIP
+}
+
 func (s *Scanner) readReplies(ctx context.Context, table *Table, done chan<- struct{}) {
 	defer close(done)
 	for {

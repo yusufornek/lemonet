@@ -59,6 +59,7 @@ type Controller struct {
 	guard       engine.SessionGuard
 
 	gwIP  net.IP
+	gwIP6 net.IP // gateway IPv6 link-local for NDP poisoning; nil when the LAN has no IPv6 router
 	gwMAC net.HardwareAddr
 
 	mu       sync.Mutex
@@ -108,6 +109,17 @@ func New(iface engine.Interface) (*Controller, error) {
 		return nil, fmt.Errorf("control: could not resolve gateway %s: %w", gwIP, err)
 	}
 	c.gwIP, c.gwMAC = gwIP, gwMAC
+
+	// Best-effort IPv6: learn the router's link-local so we can also poison the device's IPv6
+	// default route. If the LAN has no IPv6 router, IPv6 is simply left uncontrolled.
+	v6ctx, v6cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if gwLL, err6 := c.scanner.DiscoverRouterLL(v6ctx); err6 == nil {
+		c.gwIP6 = gwLL
+		log.Printf("control: IPv6 router %s found; IPv6 interception enabled", gwLL)
+	} else {
+		log.Printf("control: no IPv6 router found; IPv6 not intercepted (%v)", err6)
+	}
+	v6cancel()
 
 	// The relay reads on its own handle so its capture never competes with the scanner for
 	// packets on the shared handle.
@@ -557,6 +569,7 @@ func (c *Controller) spoofConfig() engine.SpoofConfig {
 	return engine.SpoofConfig{
 		Targets:    targets,
 		GatewayIP:  c.gwIP,
+		GatewayIP6: c.gwIP6,
 		GatewayMAC: c.gwMAC,
 		SelfMAC:    c.iface.MAC,
 		FullDuplex: true,
