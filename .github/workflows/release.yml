@@ -21,7 +21,7 @@ jobs:
             target: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install libpcap (Linux)
         if: runner.os == 'Linux'
