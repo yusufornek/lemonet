@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/dcd35175-7595-44ff-8f0c-3d2bf3e538ee" alt="lemonet" width="180">
+  <img src="https://github.com/user-attachments/assets/dcd35175-7595-44ff-8f0c-3d2bf3e538ee" alt="lemonet" width="280">
 </p>
 
 # lemonet

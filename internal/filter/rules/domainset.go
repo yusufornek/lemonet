@@ -46,6 +46,25 @@ func normalize(domain string) string {
 	return strings.TrimSuffix(d, ".")
 }
 
+// NormalizeDomain cleans user input ("https://www.YouTube.com/feed") into a bare domain
+// ("www.youtube.com") suitable for a rule. It returns "" if the result is not a plausible domain.
+func NormalizeDomain(s string) string {
+	d := strings.ToLower(strings.TrimSpace(s))
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimPrefix(d, "http://")
+	if i := strings.IndexByte(d, '/'); i >= 0 {
+		d = d[:i] // drop any path
+	}
+	if i := strings.IndexByte(d, ':'); i >= 0 {
+		d = d[:i] // drop any port
+	}
+	d = strings.TrimSuffix(d, ".")
+	if d == "" || strings.HasPrefix(d, ".") || strings.ContainsAny(d, " \t@") || !strings.Contains(d, ".") {
+		return ""
+	}
+	return d
+}
+
 // matchDomain reports whether pattern (a single suffix) matches domain.
 func matchDomain(pattern, domain string) bool {
 	p, d := normalize(pattern), normalize(domain)

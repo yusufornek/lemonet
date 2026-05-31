@@ -21,17 +21,19 @@ import (
 
 // DeviceView is the device state the UI renders: discovery facts plus current policy.
 type DeviceView struct {
-	IP       string   `json:"ip"`
-	MAC      string   `json:"mac"`
-	Vendor   string   `json:"vendor"`
-	Hostname string   `json:"hostname"`
-	Kind     string   `json:"kind"`
-	Blocked  bool     `json:"blocked"`
-	Paused   bool     `json:"paused"`
-	UpKbps   int      `json:"upKbps"`
-	DownKbps int      `json:"downKbps"`
-	Filtered bool     `json:"filtered"`
-	Packs    []string `json:"packs"`
+	IP          string        `json:"ip"`
+	MAC         string        `json:"mac"`
+	Vendor      string        `json:"vendor"`
+	Hostname    string        `json:"hostname"`
+	Kind        string        `json:"kind"`
+	Blocked     bool          `json:"blocked"`
+	Paused      bool          `json:"paused"`
+	UpKbps      int           `json:"upKbps"`
+	DownKbps    int           `json:"downKbps"`
+	Filtered    bool          `json:"filtered"`
+	Packs       []string      `json:"packs"`
+	CustomRules []rules.Rule  `json:"customRules"`
+	Toggles     rules.Toggles `json:"toggles"`
 }
 
 type policyState struct {
@@ -54,6 +56,7 @@ type Controller struct {
 	filter      *filter.Filter
 	packs       []filter.PackInfo
 	table       *engine.Table
+	guard       engine.SessionGuard
 
 	gwIP  net.IP
 	gwMAC net.HardwareAddr
@@ -87,6 +90,7 @@ func New(iface engine.Interface) (*Controller, error) {
 		filter:   flt,
 		packs:    packs,
 		table:    table,
+		guard:    engine.NewSessionGuard(),
 		managed:  make(map[string]policyState),
 		filtered: make(map[string]rules.DevicePolicy),
 	}
@@ -156,6 +160,8 @@ func (c *Controller) Devices() []DeviceView {
 		if pol, ok := c.filtered[d.IP.String()]; ok {
 			v.Filtered = true
 			v.Packs = pol.EnabledPacks
+			v.CustomRules = pol.CustomRules
+			v.Toggles = pol.Toggles
 		}
 		out = append(out, v)
 	}
@@ -172,20 +178,28 @@ func (c *Controller) Devices() []DeviceView {
 // session, leaving the capture handle open so the user can scan or manage again.
 func (c *Controller) StopAll() error {
 	c.mu.Lock()
-	cancel := c.cancel
-	c.cancel = nil
-	c.started = false
 	c.managed = make(map[string]policyState)
 	c.filtered = make(map[string]rules.DevicePolicy)
 	c.mu.Unlock()
+	c.teardown()
+	_ = c.enforcer.ClearAll()
+	c.filter.ClearAll()
+	return nil
+}
 
+// teardown cancels the spoof/relay session (which restores every target's ARP cache) and undoes
+// the host redirect suppression. Safe to call when no session is running.
+func (c *Controller) teardown() {
+	c.mu.Lock()
+	cancel := c.cancel
+	c.cancel = nil
+	c.started = false
+	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
 		time.Sleep(300 * time.Millisecond) // let the spoofer send its restore frames
 	}
-	_ = c.enforcer.ClearAll()
-	c.filter.ClearAll()
-	return nil
+	_ = c.guard.End()
 }
 
 func (c *Controller) Block(ip string) error {
@@ -239,35 +253,196 @@ func (c *Controller) SetFilter(ip string, pol rules.DevicePolicy) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := c.table.GetByIP(net.ParseIP(ip)); !ok {
+	dev, ok := c.table.GetByIP(net.ParseIP(ip))
+	if !ok {
 		return fmt.Errorf("control: device %s must be scanned before it can be filtered", ip)
 	}
 
-	// Category packs are ineffective against QUIC (social and video apps lean on UDP/443), so
-	// enabling any pack also forces QUIC blocking, which pushes traffic onto TCP where the SNI and
-	// DNS layers can act.
-	if len(pol.EnabledPacks) > 0 {
+	// Domain filtering is ineffective against QUIC (social and video apps lean on UDP/443), so any
+	// active pack or custom rule also forces QUIC blocking, pushing traffic onto TCP where the SNI
+	// and DNS layers can act.
+	if len(pol.EnabledPacks) > 0 || len(pol.CustomRules) > 0 {
 		pol.Toggles.BlockQUIC = true
 	}
 
 	active := len(pol.EnabledPacks) > 0 || len(pol.CustomRules) > 0 || pol.Toggles != (rules.Toggles{})
 	if active {
 		c.filter.SetPolicy(addr, pol)
-	} else {
-		c.filter.ClearPolicy(addr)
+		c.mu.Lock()
+		c.filtered[ip] = pol
+		c.mu.Unlock()
+		c.ensureSession()
+		c.refreshSession()
+		return nil
 	}
 
+	// Inactive: stop filtering this device. Do not start a session for an empty policy.
+	c.filter.ClearPolicy(addr)
 	c.mu.Lock()
-	if active {
-		c.filtered[ip] = pol
-	} else {
-		delete(c.filtered, ip)
-	}
+	delete(c.filtered, ip)
+	_, stillManaged := c.managed[ip]
+	anyManaged := len(c.managed) > 0 || len(c.filtered) > 0
 	c.mu.Unlock()
 
-	c.ensureSession()
-	c.refreshSession()
+	if !stillManaged {
+		c.spoofer.RestoreDevice(dev) // recover the device's connectivity immediately
+	}
+	if anyManaged {
+		c.refreshSession()
+	} else {
+		c.teardown()
+	}
 	return nil
+}
+
+// knownIPs verifies every IP has been discovered, so a bulk operation does not partially apply
+// before failing on a stale IP.
+func (c *Controller) knownIPs(ips []string) error {
+	for _, ip := range ips {
+		if _, ok := c.table.GetByIP(net.ParseIP(ip)); !ok {
+			return fmt.Errorf("control: device %s must be scanned first", ip)
+		}
+	}
+	return nil
+}
+
+// currentPolicy returns a deep copy of a device's stored filter policy so callers can mutate it
+// without aliasing controller state.
+func (c *Controller) currentPolicy(ip string) rules.DevicePolicy {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p := c.filtered[ip]
+	return rules.DevicePolicy{
+		MAC:          p.MAC,
+		EnabledPacks: append([]string(nil), p.EnabledPacks...),
+		CustomRules:  append([]rules.Rule(nil), p.CustomRules...),
+		Toggles:      p.Toggles,
+	}
+}
+
+// AddRule adds (or replaces) a custom domain rule on each of the given devices.
+func (c *Controller) AddRule(ips []string, action, domain string) error {
+	dom := rules.NormalizeDomain(domain)
+	if dom == "" {
+		return fmt.Errorf("control: invalid domain %q", domain)
+	}
+	if err := c.knownIPs(ips); err != nil {
+		return err
+	}
+	act := rules.Block
+	if action == string(rules.Allow) {
+		act = rules.Allow
+	}
+	for _, ip := range ips {
+		pol := c.currentPolicy(ip)
+		pol.CustomRules = upsertRule(pol.CustomRules, rules.Rule{Action: act, Domain: dom})
+		if err := c.SetFilter(ip, pol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveRule removes a custom domain rule from each of the given devices.
+func (c *Controller) RemoveRule(ips []string, action, domain string) error {
+	dom := rules.NormalizeDomain(domain)
+	if err := c.knownIPs(ips); err != nil {
+		return err
+	}
+	act := rules.Block
+	if action == string(rules.Allow) {
+		act = rules.Allow
+	}
+	for _, ip := range ips {
+		pol := c.currentPolicy(ip)
+		pol.CustomRules = removeRule(pol.CustomRules, act, dom)
+		if err := c.SetFilter(ip, pol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetPack enables or disables one category pack on each of the given devices.
+func (c *Controller) SetPack(ips []string, packID string, enabled bool) error {
+	if err := c.knownIPs(ips); err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		pol := c.currentPolicy(ip)
+		pol.EnabledPacks = setPack(pol.EnabledPacks, packID, enabled)
+		if err := c.SetFilter(ip, pol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetToggle flips a single transport toggle on each device, leaving its other toggles intact so a
+// multi-device change does not clobber per-device state.
+func (c *Controller) SetToggle(ips []string, key string, enabled bool) error {
+	if err := c.knownIPs(ips); err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		pol := c.currentPolicy(ip)
+		pol.Toggles = applyToggle(pol.Toggles, key, enabled)
+		if err := c.SetFilter(ip, pol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyToggle(t rules.Toggles, key string, on bool) rules.Toggles {
+	switch key {
+	case "blockQuic":
+		t.BlockQUIC = on
+	case "blockVpnPorts":
+		t.BlockVPNPorts = on
+	case "blockEncryptedDns":
+		t.BlockEncryptedDNS = on
+	case "stripEch":
+		t.StripECH = on
+	case "firefoxCanary":
+		t.FirefoxCanary = on
+	}
+	return t
+}
+
+func upsertRule(rs []rules.Rule, r rules.Rule) []rules.Rule {
+	var out []rules.Rule
+	for _, x := range rs {
+		if rules.NormalizeDomain(x.Domain) == r.Domain {
+			continue // one rule per domain; the new action replaces the old
+		}
+		out = append(out, x)
+	}
+	return append(out, r)
+}
+
+func removeRule(rs []rules.Rule, act rules.Action, dom string) []rules.Rule {
+	var out []rules.Rule
+	for _, x := range rs {
+		if x.Action == act && rules.NormalizeDomain(x.Domain) == dom {
+			continue
+		}
+		out = append(out, x)
+	}
+	return out
+}
+
+func setPack(packs []string, id string, enabled bool) []string {
+	var out []string
+	for _, p := range packs {
+		if p != id {
+			out = append(out, p)
+		}
+	}
+	if enabled {
+		out = append(out, id)
+	}
+	return out
 }
 
 // Release stops managing a device entirely: it clears enforcement and filtering, then restores
@@ -325,10 +500,27 @@ func (c *Controller) ensureSession() {
 	}
 	c.started = true
 
+	// Suppress host ICMP redirects for the session so the kernel cannot steer the target back to
+	// the real gateway around our relay. Restored in StopAll/Close.
+	if err := c.guard.Begin(); err != nil {
+		log.Printf("control: could not adjust redirects: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
-	go func() { _ = c.spoofer.Start(ctx, c.spoofConfig()) }()
-	go func() { _ = c.relay.Run(ctx) }()
+	go safely("spoofer", func() { _ = c.spoofer.Start(ctx, c.spoofConfig()) })
+	go safely("relay", func() { _ = c.relay.Run(ctx) })
+}
+
+// safely runs fn and recovers from a panic so a fault in one session goroutine cannot crash the
+// process and skip the redirect/ARP restoration that runs on shutdown.
+func safely(name string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("control: %s goroutine recovered from panic: %v", name, r)
+		}
+	}()
+	fn()
 }
 
 // refreshSession pushes the current managed set into the running spoofer.
@@ -374,13 +566,7 @@ func (c *Controller) spoofConfig() engine.SpoofConfig {
 // Close cancels the session (which restores every target's ARP cache), clears all policy, and
 // closes the capture handle. It is safe to call even if no session ever started.
 func (c *Controller) Close() error {
-	c.mu.Lock()
-	cancel := c.cancel
-	c.mu.Unlock()
-	if cancel != nil {
-		cancel()
-		time.Sleep(300 * time.Millisecond) // let the spoofer send its restore frames
-	}
+	c.teardown()
 	_ = c.enforcer.ClearAll()
 	_ = c.relayHandle.Close()
 	return c.handle.Close()

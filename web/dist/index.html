@@ -62,6 +62,7 @@
     button:hover { opacity: 0.9; }
     button:active { transform: scale(0.98); }
     button.danger { background: var(--danger); }
+    button.ghost { background: transparent; color: var(--accent); }
     button.small { padding: 5px 10px; font-size: 13px; }
     button:disabled { opacity: 0.4; cursor: default; }
     .row { display: flex; align-items: center; gap: 10px; }
@@ -85,6 +86,38 @@
     label.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; font-size: 14px; line-height: 1.4; }
     .empty { color: var(--muted); text-align: center; padding: 28px 0; }
     .consent-body { font-size: 14px; line-height: 1.5; color: var(--muted); }
+
+    .manage { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+    .manage-devices { flex: 0 0 250px; max-height: 70vh; overflow: auto; }
+    .manage-rules { flex: 1; min-width: 300px; }
+    .selrow { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px; cursor: pointer; }
+    .selrow:hover { background: rgba(120,120,128,0.08); }
+    .selrow.sel { background: rgba(0,113,227,0.14); }
+    .section { margin-bottom: 24px; }
+    .section h3 { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    input[type=text].domain { width: 100%; max-width: 300px; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .seg button { background: transparent; color: var(--text); border: none; border-radius: 0; padding: 7px 14px; }
+    .seg button.active { background: var(--accent); color: #fff; }
+    .rule-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+    .chip { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px; border-radius: 10px; font-size: 13px; }
+    .chip.block { background: rgba(215,0,21,0.12); color: var(--danger); }
+    .chip.allow { background: rgba(52,199,89,0.16); color: #1a7f37; }
+    @media (prefers-color-scheme: dark) { .chip.allow { color: #30d158; } }
+    .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 15px; padding: 0 0 0 6px; line-height: 1; }
+    .swrow { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--border); }
+    .swrow:first-of-type { border-top: none; }
+    .swrow .label { font-size: 14px; }
+    .swrow .label small { display: block; color: var(--muted); font-size: 12px; }
+    .sw { position: relative; display: inline-block; width: 42px; height: 26px; flex: none; }
+    .sw input { opacity: 0; width: 0; height: 0; }
+    .sw .knob { position: absolute; inset: 0; background: rgba(120,120,128,0.3); border-radius: 999px; transition: background 0.18s ease; }
+    .sw .knob::before { content: ""; position: absolute; width: 22px; height: 22px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: transform 0.18s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+    .sw input:checked + .knob { background: #34c759; }
+    .sw input:checked + .knob::before { transform: translateX(16px); }
+    #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: var(--danger); color: #fff; padding: 10px 16px; border-radius: 10px; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; max-width: 80vw; font-size: 14px; z-index: 50; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   </style>
 </head>
 <body>
@@ -113,6 +146,13 @@
         blocked: "blocked", paused: "paused", filtered: "filtered",
         block: "Block", release: "Release", remove: "Remove", full: "Full speed",
         filter: "Filter", apply: "Apply", blockQuic: "Block QUIC", blockVpn: "Block VPN ports",
+        manage: "Manage", management: "Management", done: "Done",
+        selectAll: "Select all", clearSel: "Clear",
+        blockSite: "Block a site", allow: "Allow", add: "Add",
+        categories: "Categories", dnsNetwork: "DNS & network", activeRules: "Active rules",
+        noRules: "No custom rules yet.", selectDevicesFirst: "Select one or more devices on the left.",
+        blockDot: "Block encrypted DNS (DoT/DoQ)", stripEch: "Strip ECH", canary: "Firefox DoH canary",
+        quicAuto: "QUIC is blocked automatically so filtering can take effect.",
       },
       tr: {
         consentTitle: "Devam etmeden önce",
@@ -126,6 +166,13 @@
         blocked: "engelli", paused: "duraklatıldı", filtered: "filtreli",
         block: "Engelle", release: "Bırak", remove: "Kaldır", full: "Tam hız",
         filter: "Filtre", apply: "Uygula", blockQuic: "QUIC engelle", blockVpn: "VPN portları engelle",
+        manage: "Yönet", management: "Yönetim", done: "Bitti",
+        selectAll: "Tümünü seç", clearSel: "Temizle",
+        blockSite: "Site engelle", allow: "İzin ver", add: "Ekle",
+        categories: "Kategoriler", dnsNetwork: "DNS ve ağ", activeRules: "Aktif kurallar",
+        noRules: "Henüz özel kural yok.", selectDevicesFirst: "Soldan bir veya daha fazla cihaz seç.",
+        blockDot: "Şifreli DNS engelle (DoT/DoQ)", stripEch: "ECH'yi sıyır", canary: "Firefox DoH canary",
+        quicAuto: "Filtrelemenin işe yaraması için QUIC otomatik engellenir.",
       },
     };
 
@@ -160,6 +207,23 @@
     const api = (path, opts = {}) =>
       fetch(path, { ...opts, headers: { "X-Lemonet-Token": token, "Content-Type": "application/json", ...(opts.headers || {}) } });
 
+    function toast(msg) {
+      let el = document.getElementById("toast");
+      if (!el) { el = h("div", { id: "toast" }); document.body.append(el); }
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => el.classList.remove("show"), 3200);
+    }
+
+    // post sends a JSON body and surfaces a server error instead of letting a non-2xx response
+    // throw on .json(). Returns the parsed body, or null on error.
+    async function post(path, body) {
+      const res = await api(path, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) { toast(await res.text()); return null; }
+      return res.json();
+    }
+
     const app = document.getElementById("app");
     const meta = document.getElementById("meta");
     const langBtn = document.getElementById("lang");
@@ -168,6 +232,8 @@
     let packs = [];
     let es = null;
     let lastTick = "";
+    let view = "dashboard";
+    const selected = new Set();
 
     // setDevices replaces the working set and resets the live-update cache so the next event
     // re-renders even if its payload matches an earlier one.
@@ -190,7 +256,11 @@
       if (state.consent) listen();
     }
 
-    function render() { state.consent ? renderMain() : renderConsent(); }
+    function render() {
+      if (!state.consent) return renderConsent();
+      if (view === "manage") return renderManage();
+      renderMain();
+    }
 
     function renderConsent() {
       const c1 = h("input", { type: "checkbox" });
@@ -225,6 +295,8 @@
         stopLive();
         renderList();
       };
+      const manageBtn = h("button", { class: "ghost" }, t("manage"));
+      manageBtn.onclick = () => { stopLive(); view = "manage"; render(); };
       const managedList = h("div", { id: "managed-list" });
       const allList = h("div", { id: "all-list" });
       mount(app, h("div", {},
@@ -233,7 +305,7 @@
           managedList,
         ),
         h("div", { class: "card" },
-          h("div", { class: "row" }, h("strong", { class: "grow" }, t("devices")), stopBtn, scanBtn),
+          h("div", { class: "row" }, h("strong", { class: "grow" }, t("devices")), manageBtn, stopBtn, scanBtn),
           allList,
         ),
       ));
@@ -316,10 +388,6 @@
         renderList();
       };
 
-      const editor = filterEditor(d);
-      const filterBtn = h("button", { class: "small ghost" }, t("filter"));
-      filterBtn.onclick = () => editor.classList.toggle("open");
-
       const line = h("div", { class: "device" },
         h("span", { class: "dot " + (d.blocked ? "off" : "") }),
         h("div", { class: "grow" },
@@ -327,39 +395,9 @@
           h("div", { class: "sub" }, `${d.ip} · ${d.mac}${d.vendor ? " · " + d.vendor : ""}`),
         ),
         speed,
-        filterBtn,
         toggle,
       );
-      return h("div", { class: "item" }, line, editor);
-    }
-
-    function filterEditor(d) {
-      const checks = packs.map(p => {
-        const cb = h("input", { type: "checkbox" });
-        cb.dataset.pack = p.id;
-        return h("label", {}, cb, `${p.name} (${p.count})`);
-      });
-      const quic = h("input", { type: "checkbox" });
-      const vpn = h("input", { type: "checkbox" });
-      const apply = h("button", { class: "small" }, t("apply"));
-      apply.onclick = async () => {
-        const enabledPacks = checks
-          .map(l => l.querySelector("input"))
-          .filter(cb => cb.checked)
-          .map(cb => cb.dataset.pack);
-        setDevices(await (await api("/api/filter", {
-          method: "POST",
-          body: JSON.stringify({ ip: d.ip, enabledPacks, toggles: { blockQuic: quic.checked, blockVpnPorts: vpn.checked } }),
-        })).json());
-        renderList();
-      };
-      return h("div", { class: "editor" },
-        h("div", { class: "packs" }, ...checks,
-          h("label", {}, quic, t("blockQuic")),
-          h("label", {}, vpn, t("blockVpn")),
-        ),
-        apply,
-      );
+      return h("div", { class: "item" }, line);
     }
 
     async function act(ip, action, extra = {}) {
@@ -367,14 +405,140 @@
       return r.json();
     }
 
+    function switchEl(checked, onchange) {
+      const input = h("input", { type: "checkbox" });
+      input.checked = checked;
+      input.onchange = () => onchange(input.checked);
+      return h("label", { class: "sw" }, input, h("span", { class: "knob" }));
+    }
+
+    function renderManage() {
+      const sel = devices.filter(d => selected.has(d.ip));
+
+      const rail = h("div", { class: "manage-devices" });
+      const selAll = h("button", { class: "ghost small" }, t("selectAll"));
+      selAll.onclick = () => { devices.forEach(d => selected.add(d.ip)); render(); };
+      const clr = h("button", { class: "ghost small" }, t("clearSel"));
+      clr.onclick = () => { selected.clear(); render(); };
+      rail.append(h("div", { class: "row", style: "margin-bottom:6px" },
+        h("strong", { class: "grow" }, t("devices")), selAll, clr));
+      devices.forEach(d => {
+        const cb = h("input", { type: "checkbox" });
+        cb.checked = selected.has(d.ip);
+        const row = h("div", { class: "selrow" + (selected.has(d.ip) ? " sel" : "") }, cb,
+          h("div", { class: "grow" },
+            h("div", { class: "name" }, d.hostname || d.vendor || d.ip),
+            h("div", { class: "sub" }, d.ip)));
+        row.onclick = () => {
+          if (selected.has(d.ip)) selected.delete(d.ip); else selected.add(d.ip);
+          render();
+        };
+        rail.append(row);
+      });
+
+      const work = h("div", { class: "manage-rules" });
+      if (sel.length === 0) {
+        work.append(h("div", { class: "hint" }, t("selectDevicesFirst")));
+      } else {
+        work.append(rulesSection(sel), categoriesSection(sel), dnsSection(sel));
+      }
+
+      const done = h("button", {}, t("done"));
+      done.onclick = () => { view = "dashboard"; render(); listen(); };
+      const title = t("management") + (sel.length ? " · " + sel.length : "");
+      mount(app, h("div", {},
+        h("div", { class: "row", style: "margin-bottom:16px" }, h("strong", { class: "grow" }, title), done),
+        h("div", { class: "card" }, h("div", { class: "manage" }, rail, work)),
+      ));
+    }
+
+    function rulesSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const input = h("input", { type: "text", class: "domain", placeholder: "youtube.com" });
+      let action = "block";
+      const blockBtn = h("button", { class: "active" }, t("block"));
+      const allowBtn = h("button", {}, t("allow"));
+      blockBtn.onclick = () => { action = "block"; blockBtn.classList.add("active"); allowBtn.classList.remove("active"); };
+      allowBtn.onclick = () => { action = "allow"; allowBtn.classList.add("active"); blockBtn.classList.remove("active"); };
+      const seg = h("div", { class: "seg" }, blockBtn, allowBtn);
+      const add = h("button", {}, t("add"));
+      const submit = async () => {
+        const domain = input.value.trim();
+        if (!domain) return;
+        const d = await post("/api/rules/add", { ips, action, domain });
+        if (!d) return;
+        setDevices(d);
+        input.value = "";
+        render();
+      };
+      add.onclick = submit;
+      input.onkeydown = (e) => { if (e.key === "Enter") submit(); };
+
+      const seen = new Set();
+      const chips = [];
+      sel.forEach(d => (d.customRules || []).forEach(r => {
+        const key = r.action + "|" + r.domain;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const x = h("button", {}, "×");
+        x.onclick = async () => {
+          const d = await post("/api/rules/remove", { ips, action: r.action, domain: r.domain });
+          if (d) { setDevices(d); render(); }
+        };
+        chips.push(h("div", { class: "chip " + r.action }, h("span", {}, r.domain), x));
+      }));
+      const list = chips.length ? h("div", { class: "rule-list" }, ...chips) : h("div", { class: "hint" }, t("noRules"));
+
+      return h("div", { class: "section" },
+        h("h3", {}, t("blockSite")),
+        h("div", { class: "row" }, input, seg, add),
+        h("h3", { style: "margin-top:18px" }, t("activeRules")),
+        list,
+      );
+    }
+
+    function categoriesSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const rows = packs.map(p => {
+        const allOn = sel.every(d => (d.packs || []).includes(p.id));
+        const sw = switchEl(allOn, async (on) => {
+          const d = await post("/api/packs/set", { ips, packId: p.id, enabled: on });
+          if (d) { setDevices(d); render(); }
+        });
+        return h("div", { class: "swrow" },
+          h("div", { class: "label" }, p.name, h("small", {}, String(p.count))), sw);
+      });
+      return h("div", { class: "section" }, h("h3", {}, t("categories")), ...rows,
+        h("div", { class: "hint" }, t("quicAuto")));
+    }
+
+    function dnsSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const items = [
+        ["blockQuic", t("blockQuic")],
+        ["blockVpnPorts", t("blockVpn")],
+        ["blockEncryptedDns", t("blockDot")],
+        ["stripEch", t("stripEch")],
+        ["firefoxCanary", t("canary")],
+      ];
+      const rows = items.map(([key, label]) => {
+        const checked = sel.every(d => !!((d.toggles || {})[key]));
+        const sw = switchEl(checked, async (on) => {
+          const d = await post("/api/toggles/set", { ips, key, enabled: on });
+          if (d) { setDevices(d); render(); }
+        });
+        return h("div", { class: "swrow" }, h("div", { class: "label" }, label), sw);
+      });
+      return h("div", { class: "section" }, h("h3", {}, t("dnsNetwork")), ...rows);
+    }
+
     function listen() {
       if (es) return;
       es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
       es.onmessage = (ev) => {
-        // Re-render only when the data actually changed, and never while a filter editor is open,
-        // so the list stays stable and the user's interaction is not interrupted.
-        if (ev.data === lastTick) return;
-        if (document.querySelector(".editor.open")) return;
+        // Re-render only when the data changed, and only on the dashboard, so live updates never
+        // disrupt the management view while the user is editing rules.
+        if (ev.data === lastTick || view !== "dashboard") return;
         lastTick = ev.data;
         devices = JSON.parse(ev.data);
         renderList();

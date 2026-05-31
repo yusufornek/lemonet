@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"log"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/gopacket/gopacket"
@@ -43,6 +45,11 @@ type Relay struct {
 	table   *Table
 	dec     Decider
 	inspect FlowInspector
+
+	// Diagnostic counters (atomic): rx = intercepted IPv4 frames routed, fwd = forwarded,
+	// drop = blocked, delay = shaped. They reveal whether the relay is actually on the path.
+	rx, fwd, drop, delay atomic.Uint64
+	sendErrs             atomic.Uint64
 }
 
 func NewRelay(h Handle, iface Interface, gwMAC []byte, table *Table, dec Decider) *Relay {
@@ -56,6 +63,7 @@ func (r *Relay) SetInspector(i FlowInspector) { r.inspect = i }
 // frames addressed to us, so the relay does not burn cycles on traffic it would ignore anyway.
 func (r *Relay) Run(ctx context.Context) error {
 	_ = r.handle.SetBPF("ether dst " + r.iface.MAC.String() + " and ip")
+	go r.logStats(ctx)
 
 	for {
 		select {
@@ -69,6 +77,38 @@ func (r *Relay) Run(ctx context.Context) error {
 		}
 		r.handlePacket(pkt)
 	}
+}
+
+// logStats prints relay counters whenever they change, so the operator can confirm the relay is
+// actually carrying the target's traffic (rx > 0) and forwarding it.
+func (r *Relay) logStats(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var prev uint64
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rx := r.rx.Load()
+			if rx == prev {
+				continue
+			}
+			prev = rx
+			log.Printf("relay: rx=%d fwd=%d drop=%d shaped=%d sendErr=%d",
+				rx, r.fwd.Load(), r.drop.Load(), r.delay.Load(), r.sendErrs.Load())
+		}
+	}
+}
+
+func (r *Relay) send(frame []byte) {
+	if err := r.handle.Send(frame); err != nil {
+		if r.sendErrs.Add(1) == 1 {
+			log.Printf("relay: packet injection failed (will suppress further): %v", err)
+		}
+		return
+	}
+	r.fwd.Add(1)
 }
 
 func (r *Relay) handlePacket(pkt gopacket.Packet) {
@@ -87,10 +127,19 @@ func (r *Relay) handlePacket(pkt gopacket.Packet) {
 	if len(raw) < 14 {
 		return
 	}
+	r.rx.Add(1)
+
+	// Never relay an ICMP redirect to a device: a real gateway sends these to steer the device
+	// back to itself, which would undo the poisoning. Dropping them keeps the device on our path.
+	if isICMPRedirect(pkt) {
+		r.drop.Add(1)
+		return
+	}
 
 	if r.inspect != nil {
 		if udp, dport, payload, ok := transport(pkt); ok {
 			if r.inspect.InspectFlow(device, udp, dport, payload) {
+				r.drop.Add(1)
 				return
 			}
 		}
@@ -99,15 +148,17 @@ func (r *Relay) handlePacket(pkt gopacket.Packet) {
 	if r.dec != nil {
 		drop, delay := r.dec.Decide(device, dir, len(raw))
 		if drop {
+			r.drop.Add(1)
 			return
 		}
 		if delay > 0 {
 			frame := rewriteNextHop(raw, nextHop, r.iface.MAC)
-			time.AfterFunc(delay, func() { _ = r.handle.Send(frame) })
+			r.delay.Add(1)
+			time.AfterFunc(delay, func() { r.send(frame) })
 			return
 		}
 	}
-	_ = r.handle.Send(rewriteNextHop(raw, nextHop, r.iface.MAC))
+	r.send(rewriteNextHop(raw, nextHop, r.iface.MAC))
 }
 
 // route classifies an intercepted packet and returns the device it belongs to and the MAC of
@@ -141,6 +192,14 @@ func transport(pkt gopacket.Packet) (udp bool, dstPort uint16, payload []byte, o
 		return true, uint16(u.DstPort), u.LayerPayload(), true
 	}
 	return false, 0, nil, false
+}
+
+func isICMPRedirect(pkt gopacket.Packet) bool {
+	l := pkt.Layer(layers.LayerTypeICMPv4)
+	if l == nil {
+		return false
+	}
+	return l.(*layers.ICMPv4).TypeCode.Type() == layers.ICMPv4TypeRedirect
 }
 
 // rewriteNextHop returns a copy of frame with the Ethernet destination set to nextHop and the

@@ -39,6 +39,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/device", s.handleDevice)
 	mux.HandleFunc("/api/packs", s.handlePacks)
 	mux.HandleFunc("/api/filter", s.handleFilter)
+	mux.HandleFunc("/api/rules/add", s.handleRuleAdd)
+	mux.HandleFunc("/api/rules/remove", s.handleRuleRemove)
+	mux.HandleFunc("/api/packs/set", s.handlePackSet)
+	mux.HandleFunc("/api/toggles/set", s.handleTogglesSet)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.Handle("/", http.FileServer(http.FS(s.static)))
@@ -168,6 +172,74 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePacks(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.ctrl.Packs())
+}
+
+func (s *Server) handleRuleAdd(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IPs    []string `json:"ips"`
+		Action string   `json:"action"`
+		Domain string   `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.ctrl.AddRule(req.IPs, req.Action, req.Domain); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.ctrl.Devices())
+}
+
+func (s *Server) handleRuleRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IPs    []string `json:"ips"`
+		Action string   `json:"action"`
+		Domain string   `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.ctrl.RemoveRule(req.IPs, req.Action, req.Domain); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.ctrl.Devices())
+}
+
+func (s *Server) handlePackSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IPs     []string `json:"ips"`
+		PackID  string   `json:"packId"`
+		Enabled bool     `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.ctrl.SetPack(req.IPs, req.PackID, req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.ctrl.Devices())
+}
+
+func (s *Server) handleTogglesSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IPs     []string `json:"ips"`
+		Key     string   `json:"key"`
+		Enabled bool     `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.ctrl.SetToggle(req.IPs, req.Key, req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.ctrl.Devices())
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
