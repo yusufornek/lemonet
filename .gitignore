@@ -17,6 +17,9 @@
 /web/.vite/
 /web/dist/*.map
 
+# Logo is hosted on GitHub (user-attachments) and referenced by URL in README; never commit it
+/lemonetlogo.png
+
 # Editor / OS
 .DS_Store
 *.swp
