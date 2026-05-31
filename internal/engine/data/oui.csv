@@ -1,0 +1,6 @@
+# Built-in OUI seed: MAC prefix (first 3 bytes, lowercase hex) -> vendor.
+# This is a small starter set. For full vendor coverage, drop the IEEE OUI list as
+# "oui.csv" into the lemonet config directory; entries there extend this table.
+b827eb,Raspberry Pi Foundation
+dca632,Raspberry Pi Trading
+e45f01,Raspberry Pi Trading

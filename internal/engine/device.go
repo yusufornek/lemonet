@@ -82,6 +82,29 @@ func (t *Table) Get(mac net.HardwareAddr) (Device, bool) {
 	return *d, true
 }
 
+// MergeByIP enriches an already-discovered device (matched by IP) with name, kind, or vendor
+// learned from a signal that does not carry a MAC, such as mDNS or reverse DNS. Empty fields are
+// ignored, and kind/vendor only fill when not already set so a stronger signal is not overwritten.
+func (t *Table) MergeByIP(ip net.IP, hostname, kind, vendor string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, d := range t.devices {
+		if !d.IP.Equal(ip) {
+			continue
+		}
+		if hostname != "" {
+			d.Hostname = hostname
+		}
+		if kind != "" && d.Kind == "" {
+			d.Kind = kind
+		}
+		if vendor != "" && d.Vendor == "" {
+			d.Vendor = vendor
+		}
+		return
+	}
+}
+
 func (t *Table) GetByIP(ip net.IP) (Device, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

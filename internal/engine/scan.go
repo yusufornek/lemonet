@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gopacket/gopacket"
@@ -38,6 +40,7 @@ func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
 	table := NewTable()
 	done := make(chan struct{})
 	go s.readReplies(ctx, table, done)
+	go s.enrichMDNS(ctx, table) // names and roles, concurrent with the ARP sweep
 
 	for _, ip := range hosts {
 		frame, err := BuildARPRequest(s.iface.IP, s.iface.MAC, ip)
@@ -49,15 +52,52 @@ func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
 		_ = s.handle.Send(frame)
 		select {
 		case <-ctx.Done():
-			<-done
-			return table.List(), nil
+			return s.finalize(table, done), nil
 		case <-time.After(sweepProbeGap):
 		}
 	}
 
 	<-ctx.Done()
+	return s.finalize(table, done), nil
+}
+
+// finalize waits for the reply reader to stop, then adds best-effort reverse-DNS names and a
+// vendor-based kind for any device still missing one.
+func (s *Scanner) finalize(table *Table, done <-chan struct{}) []Device {
 	<-done
-	return table.List(), nil
+	s.enrichReverseDNS(table)
+	for _, d := range table.List() {
+		if d.Kind == "" {
+			table.MergeByIP(d.IP, "", kindFromVendor(d.Vendor), "")
+		}
+	}
+	return table.List()
+}
+
+// enrichReverseDNS fills hostnames the other signals missed by asking the local resolver for the
+// PTR record of each device, bounded by a short timeout and a small concurrency limit.
+func (s *Scanner) enrichReverseDNS(table *Table) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 16)
+	for _, d := range table.List() {
+		if d.Hostname != "" {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(dev Device) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			names, err := net.DefaultResolver.LookupAddr(ctx, dev.IP.String())
+			if err == nil && len(names) > 0 {
+				table.MergeByIP(dev.IP, strings.TrimSuffix(names[0], "."), "", "")
+			}
+		}(d)
+	}
+	wg.Wait()
 }
 
 // ResolveMAC returns the MAC for a single IP, used to learn the gateway's hardware address

@@ -24,6 +24,7 @@ type DeviceView struct {
 	MAC      string `json:"mac"`
 	Vendor   string `json:"vendor"`
 	Hostname string `json:"hostname"`
+	Kind     string `json:"kind"`
 	Blocked  bool   `json:"blocked"`
 	Paused   bool   `json:"paused"`
 	UpKbps   int    `json:"upKbps"`
@@ -76,7 +77,7 @@ func New(iface engine.Interface) (*Controller, error) {
 	c := &Controller{
 		iface:    iface,
 		handle:   handle,
-		scanner:  engine.NewScanner(iface, handle, engine.NopVendorDB{}),
+		scanner:  engine.NewScanner(iface, handle, engine.LoadVendorDB()),
 		spoofer:  engine.NewSpoofer(handle),
 		enforcer: enforcer,
 		filter:   flt,
@@ -118,6 +119,7 @@ func (c *Controller) Scan(ctx context.Context) ([]DeviceView, error) {
 	for _, d := range found {
 		c.table.Upsert(d)
 	}
+	c.table.MergeByIP(c.gwIP, "", "Router / Modem", "")
 	log.Printf("scan: discovered %d device(s) on %s", len(found), c.iface.Name)
 	return c.Devices(), nil
 }
@@ -134,6 +136,7 @@ func (c *Controller) Devices() []DeviceView {
 			MAC:      d.MAC.String(),
 			Vendor:   d.Vendor,
 			Hostname: d.Hostname,
+			Kind:     d.Kind,
 		}
 		if p, ok := c.managed[d.IP.String()]; ok {
 			v.Blocked, v.Paused, v.UpKbps, v.DownKbps = p.blocked, p.paused, p.upKbps, p.downKbps

@@ -80,6 +80,7 @@
     select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
     .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(0,113,227,0.12); color: var(--accent); margin-left: 6px; }
     .tag.blocked { background: rgba(215,0,21,0.12); color: var(--danger); }
+    .tag.kind { background: rgba(120,120,128,0.16); color: var(--muted); }
     .lang { color: var(--muted); font-size: 13px; cursor: pointer; background: none; border: none; }
     label.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; font-size: 14px; line-height: 1.4; }
     .empty { color: var(--muted); text-align: center; padding: 28px 0; }
@@ -231,6 +232,7 @@
 
     function deviceRow(d) {
       const tags = [];
+      if (d.kind) tags.push(h("span", { class: "tag kind" }, d.kind));
       if (d.blocked) tags.push(h("span", { class: "tag blocked" }, t("blocked")));
       else if (d.paused) tags.push(h("span", { class: "tag" }, t("paused")));
       else if (d.upKbps || d.downKbps) tags.push(h("span", { class: "tag" }, `${d.downKbps || "∞"}↓ / ${d.upKbps || "∞"}↑`));
