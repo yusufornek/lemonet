@@ -107,7 +107,7 @@
         c1: "I own this network or have written authorization to manage it.",
         c2: "I have read and accept the ethical and legal use terms.",
         agree: "Agree and continue",
-        scan: "Scan network", scanning: "Scanning...",
+        scan: "Scan network", scanning: "Scanning...", stop: "Stop",
         devices: "Devices", noDevices: "No devices yet. Run a scan to discover them.",
         blocked: "blocked", paused: "paused",
         block: "Block", release: "Release", full: "Full speed",
@@ -119,7 +119,7 @@
         c1: "Bu ağın sahibiyim ya da yönetmek için yazılı yetkim var.",
         c2: "Etik ve yasal kullanım koşullarını okudum ve kabul ediyorum.",
         agree: "Kabul et ve devam et",
-        scan: "Ağı tara", scanning: "Taranıyor...",
+        scan: "Ağı tara", scanning: "Taranıyor...", stop: "Durdur",
         devices: "Cihazlar", noDevices: "Henüz cihaz yok. Keşfetmek için tarama yap.",
         blocked: "engelli", paused: "duraklatıldı",
         block: "Engelle", release: "Bırak", full: "Tam hız",
@@ -164,6 +164,12 @@
     let state = {};
     let devices = [];
     let packs = [];
+    let es = null;
+    let lastTick = "";
+
+    // setDevices replaces the working set and resets the live-update cache so the next event
+    // re-renders even if its payload matches an earlier one.
+    function setDevices(arr) { devices = arr || []; lastTick = ""; return devices; }
 
     function setLangLabel() { langBtn.textContent = lang === "en" ? "Türkçe" : "English"; }
     langBtn.onclick = () => {
@@ -206,12 +212,20 @@
       const scanBtn = h("button", {}, t("scan"));
       scanBtn.onclick = async () => {
         scanBtn.textContent = t("scanning"); scanBtn.disabled = true;
-        devices = await (await api("/api/scan", { method: "POST" })).json();
+        devices = setDevices(await (await api("/api/scan", { method: "POST" })).json());
+        renderList(list);
+        listen();
+        scanBtn.textContent = t("scan"); scanBtn.disabled = false;
+      };
+      const stopBtn = h("button", { class: "danger" }, t("stop"));
+      stopBtn.onclick = async () => {
+        devices = setDevices(await (await api("/api/stop", { method: "POST" })).json());
+        stopLive();
         renderList(list);
       };
       const list = h("div", {});
       mount(app, h("div", { class: "card" },
-        h("div", { class: "row" }, h("div", { class: "grow" }, h("strong", {}, t("devices"))), scanBtn),
+        h("div", { class: "row" }, h("div", { class: "grow" }, h("strong", {}, t("devices"))), stopBtn, scanBtn),
         list,
       ));
       renderList(list);
@@ -308,11 +322,21 @@
     }
 
     function listen() {
-      const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+      if (es) return;
+      es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
       es.onmessage = (ev) => {
-        const next = JSON.parse(ev.data);
-        if (next && next.length) { devices = next; renderList(); }
+        // Re-render only when the data actually changed, and never while a filter editor is open,
+        // so the list stays stable and the user's interaction is not interrupted.
+        if (ev.data === lastTick) return;
+        if (document.querySelector(".editor.open")) return;
+        lastTick = ev.data;
+        devices = JSON.parse(ev.data);
+        renderList();
       };
+    }
+
+    function stopLive() {
+      if (es) { es.close(); es = null; }
     }
 
     load();

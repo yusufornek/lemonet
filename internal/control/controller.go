@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"sort"
 	"sync"
 	"time"
 
@@ -143,7 +144,33 @@ func (c *Controller) Devices() []DeviceView {
 		}
 		out = append(out, v)
 	}
+	// Stable order by IP so the list does not reshuffle on every refresh.
+	sort.Slice(out, func(i, j int) bool {
+		a, _ := netip.ParseAddr(out[i].IP)
+		b, _ := netip.ParseAddr(out[j].IP)
+		return a.Compare(b) < 0
+	})
 	return out
+}
+
+// StopAll releases every managed device, restores their ARP caches, and stops the spoofing
+// session, leaving the capture handle open so the user can scan or manage again.
+func (c *Controller) StopAll() error {
+	c.mu.Lock()
+	cancel := c.cancel
+	c.cancel = nil
+	c.started = false
+	c.managed = make(map[string]policyState)
+	c.filtered = make(map[string]bool)
+	c.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		time.Sleep(300 * time.Millisecond) // let the spoofer send its restore frames
+	}
+	_ = c.enforcer.ClearAll()
+	c.filter.ClearAll()
+	return nil
 }
 
 func (c *Controller) Block(ip string) error {

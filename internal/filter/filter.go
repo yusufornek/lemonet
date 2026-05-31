@@ -42,6 +42,12 @@ func (f *Filter) ClearPolicy(ip netip.Addr) {
 	f.mu.Unlock()
 }
 
+func (f *Filter) ClearAll() {
+	f.mu.Lock()
+	f.policies = make(map[netip.Addr]rules.DevicePolicy)
+	f.mu.Unlock()
+}
+
 // InspectFlow decides one flow. Order: transport toggles first (cheapest), then DNS query names,
 // then plaintext TLS SNI. A device with no policy is never filtered.
 func (f *Filter) InspectFlow(device netip.Addr, udp bool, dstPort uint16, payload []byte) bool {

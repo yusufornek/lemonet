@@ -39,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/device", s.handleDevice)
 	mux.HandleFunc("/api/packs", s.handlePacks)
 	mux.HandleFunc("/api/filter", s.handleFilter)
+	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.Handle("/", http.FileServer(http.FS(s.static)))
 	return s.secure(mux)
@@ -116,7 +117,7 @@ func (s *Server) handleConsent(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	devices, err := s.ctrl.Scan(ctx)
 	if err != nil {
@@ -167,6 +168,14 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePacks(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.ctrl.Packs())
+}
+
+func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
+	if err := s.ctrl.StopAll(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, s.ctrl.Devices())
 }
 
 func (s *Server) handleFilter(w http.ResponseWriter, r *http.Request) {

@@ -42,23 +42,27 @@ func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
 	go s.readReplies(ctx, table, done)
 	go s.enrichMDNS(ctx, table) // names and roles, concurrent with the ARP sweep
 
-	for _, ip := range hosts {
-		frame, err := BuildARPRequest(s.iface.IP, s.iface.MAC, ip)
-		if err != nil {
-			continue
-		}
-		// Two probes per host: ARP replies are unreliable and some hosts ignore the first.
-		_ = s.handle.Send(frame)
-		_ = s.handle.Send(frame)
-		select {
-		case <-ctx.Done():
-			return s.finalize(table, done), nil
-		case <-time.After(sweepProbeGap):
+	// Re-probe the whole subnet in rounds for the entire window. A single pass misses devices that
+	// are asleep or that drop the first request; repeating until the deadline finds far more.
+	s.probeRounds(ctx, hosts)
+	return s.finalize(table, done), nil
+}
+
+func (s *Scanner) probeRounds(ctx context.Context, hosts []net.IP) {
+	for {
+		for _, ip := range hosts {
+			frame, err := BuildARPRequest(s.iface.IP, s.iface.MAC, ip)
+			if err != nil {
+				continue
+			}
+			_ = s.handle.Send(frame)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(sweepProbeGap):
+			}
 		}
 	}
-
-	<-ctx.Done()
-	return s.finalize(table, done), nil
 }
 
 // finalize waits for the reply reader to stop, then adds best-effort reverse-DNS names and a
