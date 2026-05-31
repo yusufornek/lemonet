@@ -44,6 +44,9 @@ func serializeICMPv6(eth *layers.Ethernet, ip6 *layers.IPv6, icmp *layers.ICMPv6
 // BuildRouterSolicitation crafts an RS to the all-routers group so the real router answers with a
 // Router Advertisement, which reveals its link-local address and MAC.
 func BuildRouterSolicitation(srcMAC net.HardwareAddr, srcIP net.IP) ([]byte, error) {
+	if len(srcMAC) != 6 {
+		return nil, errBadAddr
+	}
 	eth := &layers.Ethernet{SrcMAC: srcMAC, DstMAC: allRoutersMAC, EthernetType: layers.EthernetTypeIPv6}
 	ip6 := &layers.IPv6{Version: 6, SrcIP: srcIP, DstIP: allRoutersIP, HopLimit: 255, NextHeader: layers.IPProtocolICMPv6}
 	icmp := &layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRouterSolicitation, 0)}
@@ -59,6 +62,9 @@ func BuildRouterSolicitation(srcMAC net.HardwareAddr, srcIP net.IP) ([]byte, err
 // accepts it without us needing to know its address. With tlla = our MAC this poisons; with
 // tlla = the gateway's real MAC it restores.
 func BuildNeighborAdvertisement(srcMAC, dstMAC net.HardwareAddr, srcIP, target net.IP, tlla net.HardwareAddr) ([]byte, error) {
+	if len(srcMAC) != 6 || len(dstMAC) != 6 || len(tlla) != 6 {
+		return nil, errBadAddr
+	}
 	eth := &layers.Ethernet{SrcMAC: srcMAC, DstMAC: dstMAC, EthernetType: layers.EthernetTypeIPv6}
 	ip6 := &layers.IPv6{Version: 6, SrcIP: srcIP, DstIP: allNodesIP, HopLimit: 255, NextHeader: layers.IPProtocolICMPv6}
 	icmp := &layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeNeighborAdvertisement, 0)}

@@ -160,6 +160,7 @@ func (s *Scanner) DiscoverRouterLL(ctx context.Context) (net.IP, error) {
 		}
 		pkt, err := s.handle.Recv()
 		if err != nil || pkt == nil {
+			_ = s.handle.Send(frame) // resend on each read timeout; a single RS/RA can be lost
 			continue
 		}
 		if ll := routerAdvertSource(pkt); ll != nil {
@@ -176,7 +177,11 @@ func routerAdvertSource(pkt gopacket.Packet) net.IP {
 	if l == nil {
 		return nil
 	}
-	return l.(*layers.IPv6).SrcIP
+	src := l.(*layers.IPv6).SrcIP
+	if !src.IsLinkLocalUnicast() {
+		return nil // RFC 4861: a router advertises from its link-local address
+	}
+	return src
 }
 
 func (s *Scanner) readReplies(ctx context.Context, table *Table, done chan<- struct{}) {

@@ -24,10 +24,57 @@ type Device struct {
 type Table struct {
 	mu      sync.RWMutex
 	devices map[string]*Device
+	v6ByMAC map[string][]net.IP // device MAC -> learned global IPv6 addresses
+	v6Owner map[string]string   // IPv6 string -> device MAC
 }
 
 func NewTable() *Table {
-	return &Table{devices: make(map[string]*Device)}
+	return &Table{
+		devices: make(map[string]*Device),
+		v6ByMAC: make(map[string][]net.IP),
+		v6Owner: make(map[string]string),
+	}
+}
+
+// RecordV6 associates a global IPv6 address with a device (by MAC), learned by observing the
+// device's traffic. It lets the relay route IPv6 download traffic and the spoofer poison the
+// gateway for that address. Non-global addresses are ignored.
+func (t *Table) RecordV6(mac net.HardwareAddr, ip net.IP) {
+	v6 := ip.To16()
+	if v6 == nil || v6.To4() != nil || !v6.IsGlobalUnicast() {
+		return
+	}
+	key := mac.String()
+	id := v6.String()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, seen := t.v6Owner[id]; seen {
+		return
+	}
+	t.v6Owner[id] = key
+	t.v6ByMAC[key] = append(t.v6ByMAC[key], append(net.IP(nil), v6...))
+}
+
+// DeviceByV6 returns the device that owns an IPv6 address.
+func (t *Table) DeviceByV6(ip net.IP) (Device, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	mac, ok := t.v6Owner[ip.String()]
+	if !ok {
+		return Device{}, false
+	}
+	d, ok := t.devices[mac]
+	if !ok {
+		return Device{}, false
+	}
+	return *d, true
+}
+
+// V6Addrs returns the global IPv6 addresses learned for a device.
+func (t *Table) V6Addrs(mac net.HardwareAddr) []net.IP {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return append([]net.IP(nil), t.v6ByMAC[mac.String()]...)
 }
 
 // Upsert merges d into the table. Non-empty fields on d overwrite existing values; empty

@@ -86,7 +86,7 @@ func New(iface engine.Interface) (*Controller, error) {
 		iface:    iface,
 		handle:   handle,
 		scanner:  engine.NewScanner(iface, handle, engine.LoadVendorDB()),
-		spoofer:  engine.NewSpoofer(handle),
+		spoofer:  engine.NewSpoofer(handle, table),
 		enforcer: enforcer,
 		filter:   flt,
 		packs:    packs,
