@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+# lemonet links libpcap/Npcap through cgo, so binaries are built natively on each OS runner
+# rather than cross-compiled. Windows is not built here yet: it needs the Npcap SDK installed on
+# the runner. Track that as follow-up before advertising Windows releases.
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+          - os: macos-latest
+            target: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libpcap (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o "dist/lemonet" ./cmd/lemonet
+          tar -C dist -czf "dist/lemonet_${TARGET}.tar.gz" lemonet
+          shasum -a 256 "dist/lemonet_${TARGET}.tar.gz" > "dist/lemonet_${TARGET}.tar.gz.sha256"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256

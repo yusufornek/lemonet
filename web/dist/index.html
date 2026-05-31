@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lemonet</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --surface: rgba(255,255,255,0.72);
+      --border: rgba(0,0,0,0.08);
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --accent: #0071e3;
+      --danger: #d70015;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --surface: rgba(28,28,30,0.72);
+        --border: rgba(255,255,255,0.1);
+        --text: #f5f5f7;
+        --muted: #98989d;
+        --accent: #0a84ff;
+        --danger: #ff453a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .card {
+      background: var(--surface);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    button {
+      font: inherit;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      transition: opacity 0.15s ease-out, transform 0.05s ease-out;
+    }
+    button:hover { opacity: 0.9; }
+    button:active { transform: scale(0.98); }
+    button.danger { background: var(--danger); }
+    button.small { padding: 5px 10px; font-size: 13px; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .row { display: flex; align-items: center; gap: 10px; }
+    .grow { flex: 1; }
+    .item { border-top: 1px solid var(--border); }
+    .item:first-child { border-top: none; }
+    .device { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
+    .editor { padding: 4px 0 14px; display: none; }
+    .editor.open { display: block; }
+    .editor .packs { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
+    .editor label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #34c759; flex: none; }
+    .dot.off { background: var(--muted); }
+    .name { font-weight: 500; }
+    .sub { color: var(--muted); font-size: 12px; }
+    select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(0,113,227,0.12); color: var(--accent); margin-left: 6px; }
+    .tag.blocked { background: rgba(215,0,21,0.12); color: var(--danger); }
+    .lang { color: var(--muted); font-size: 13px; cursor: pointer; background: none; border: none; }
+    label.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; font-size: 14px; line-height: 1.4; }
+    .empty { color: var(--muted); text-align: center; padding: 28px 0; }
+    .consent-body { font-size: 14px; line-height: 1.5; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>lemonet</h1>
+        <div class="meta" id="meta"></div>
+      </div>
+      <button class="lang" id="lang"></button>
+    </header>
+    <div id="app"></div>
+  </div>
+
+  <script>
+    const I18N = {
+      en: {
+        consentTitle: "Before you continue",
+        consentBody: "lemonet can monitor and control devices on the network it is connected to. Use it only on networks you own or are explicitly authorized to manage. Unauthorized use may violate the law. You are solely responsible for your use of this tool.",
+        c1: "I own this network or have written authorization to manage it.",
+        c2: "I have read and accept the ethical and legal use terms.",
+        agree: "Agree and continue",
+        scan: "Scan network", scanning: "Scanning...",
+        devices: "Devices", noDevices: "No devices yet. Run a scan to discover them.",
+        blocked: "blocked", paused: "paused",
+        block: "Block", release: "Release", full: "Full speed",
+        filter: "Filter", apply: "Apply", blockQuic: "Block QUIC", blockVpn: "Block VPN ports",
+      },
+      tr: {
+        consentTitle: "Devam etmeden önce",
+        consentBody: "lemonet bağlı olduğu ağdaki cihazları izleyebilir ve kontrol edebilir. Yalnızca sahibi olduğun ya da yönetmeye açıkça yetkili olduğun ağlarda kullan. Yetkisiz kullanım yasalara aykırı olabilir. Bu aracın kullanımından yalnızca sen sorumlusun.",
+        c1: "Bu ağın sahibiyim ya da yönetmek için yazılı yetkim var.",
+        c2: "Etik ve yasal kullanım koşullarını okudum ve kabul ediyorum.",
+        agree: "Kabul et ve devam et",
+        scan: "Ağı tara", scanning: "Taranıyor...",
+        devices: "Cihazlar", noDevices: "Henüz cihaz yok. Keşfetmek için tarama yap.",
+        blocked: "engelli", paused: "duraklatıldı",
+        block: "Engelle", release: "Bırak", full: "Tam hız",
+        filter: "Filtre", apply: "Uygula", blockQuic: "QUIC engelle", blockVpn: "VPN portları engelle",
+      },
+    };
+
+    let lang = localStorage.getItem("lemonet.lang") || "en";
+    const t = (k) => (I18N[lang][k] || k);
+
+    // h builds DOM nodes safely: text children become text nodes, never parsed as HTML.
+    function h(tag, props, ...children) {
+      const el = document.createElement(tag);
+      for (const [k, v] of Object.entries(props || {})) {
+        if (k === "class") el.className = v;
+        else if (k.startsWith("on")) el[k] = v;
+        else if (k === "disabled") el.disabled = v;
+        else el.setAttribute(k, v);
+      }
+      for (const c of children.flat()) {
+        if (c == null || c === false) continue;
+        el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+      }
+      return el;
+    }
+    const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); };
+    const mount = (el, node) => { clear(el); el.append(node); };
+
+    const token = (() => {
+      const u = new URL(location.href);
+      const tok = u.searchParams.get("token") || new URLSearchParams(u.hash.slice(1)).get("token") || "";
+      history.replaceState(null, "", u.pathname);
+      return tok;
+    })();
+
+    const api = (path, opts = {}) =>
+      fetch(path, { ...opts, headers: { "X-Lemonet-Token": token, "Content-Type": "application/json", ...(opts.headers || {}) } });
+
+    const app = document.getElementById("app");
+    const meta = document.getElementById("meta");
+    const langBtn = document.getElementById("lang");
+    let state = {};
+    let devices = [];
+    let packs = [];
+
+    function setLangLabel() { langBtn.textContent = lang === "en" ? "Türkçe" : "English"; }
+    langBtn.onclick = () => {
+      lang = lang === "en" ? "tr" : "en";
+      localStorage.setItem("lemonet.lang", lang);
+      setLangLabel();
+      render();
+    };
+    setLangLabel();
+
+    async function load() {
+      state = await (await api("/api/state")).json();
+      meta.textContent = `${state.interface} · ${state.selfIP} → ${state.gateway}`;
+      try { packs = await (await api("/api/packs")).json(); } catch { packs = []; }
+      render();
+      if (state.consent) listen();
+    }
+
+    function render() { state.consent ? renderMain() : renderConsent(); }
+
+    function renderConsent() {
+      const c1 = h("input", { type: "checkbox" });
+      const c2 = h("input", { type: "checkbox" });
+      const agree = h("button", { disabled: true, onclick: async () => {
+        await api("/api/consent", { method: "POST" });
+        state.consent = true; render(); listen();
+      } }, t("agree"));
+      const upd = () => { agree.disabled = !(c1.checked && c2.checked); };
+      c1.onchange = c2.onchange = upd;
+      mount(app, h("div", { class: "card" },
+        h("h1", {}, t("consentTitle")),
+        h("p", { class: "consent-body" }, t("consentBody")),
+        h("label", { class: "check" }, c1, t("c1")),
+        h("label", { class: "check" }, c2, t("c2")),
+        agree,
+      ));
+    }
+
+    function renderMain() {
+      const scanBtn = h("button", {}, t("scan"));
+      scanBtn.onclick = async () => {
+        scanBtn.textContent = t("scanning"); scanBtn.disabled = true;
+        devices = await (await api("/api/scan", { method: "POST" })).json();
+        renderList(list);
+      };
+      const list = h("div", {});
+      mount(app, h("div", { class: "card" },
+        h("div", { class: "row" }, h("div", { class: "grow" }, h("strong", {}, t("devices"))), scanBtn),
+        list,
+      ));
+      renderList(list);
+    }
+
+    function listNode() { return document.querySelector("#app .card div:last-child"); }
+
+    function renderList(list) {
+      list = list || listNode();
+      if (!list) return;
+      clear(list);
+      if (!devices || devices.length === 0) {
+        list.append(h("div", { class: "empty" }, t("noDevices")));
+        return;
+      }
+      for (const d of devices) list.append(deviceRow(d));
+    }
+
+    function deviceRow(d) {
+      const tags = [];
+      if (d.blocked) tags.push(h("span", { class: "tag blocked" }, t("blocked")));
+      else if (d.paused) tags.push(h("span", { class: "tag" }, t("paused")));
+      else if (d.upKbps || d.downKbps) tags.push(h("span", { class: "tag" }, `${d.downKbps || "∞"}↓ / ${d.upKbps || "∞"}↑`));
+
+      const speed = h("select", { class: "speed" },
+        h("option", { value: "0" }, t("full")),
+        h("option", { value: "256" }, "256 Kbps"),
+        h("option", { value: "1024" }, "1 Mbps"),
+        h("option", { value: "5120" }, "5 Mbps"),
+      );
+      speed.value = String(d.downKbps || 0);
+      speed.onchange = async () => {
+        const kbps = parseInt(speed.value, 10);
+        devices = await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps });
+        renderList();
+      };
+
+      const toggle = h("button", { class: "small " + (d.blocked ? "" : "danger") }, d.blocked ? t("release") : t("block"));
+      toggle.onclick = async () => {
+        devices = await act(d.ip, d.blocked ? "release" : "block");
+        renderList();
+      };
+
+      const editor = filterEditor(d);
+      const filterBtn = h("button", { class: "small ghost" }, t("filter"));
+      filterBtn.onclick = () => editor.classList.toggle("open");
+
+      const line = h("div", { class: "device" },
+        h("span", { class: "dot " + (d.blocked ? "off" : "") }),
+        h("div", { class: "grow" },
+          h("div", { class: "name" }, d.hostname || d.vendor || d.ip, ...tags),
+          h("div", { class: "sub" }, `${d.ip} · ${d.mac}${d.vendor ? " · " + d.vendor : ""}`),
+        ),
+        speed,
+        filterBtn,
+        toggle,
+      );
+      return h("div", { class: "item" }, line, editor);
+    }
+
+    function filterEditor(d) {
+      const checks = packs.map(p => {
+        const cb = h("input", { type: "checkbox" });
+        cb.dataset.pack = p.id;
+        return h("label", {}, cb, `${p.name} (${p.count})`);
+      });
+      const quic = h("input", { type: "checkbox" });
+      const vpn = h("input", { type: "checkbox" });
+      const apply = h("button", { class: "small" }, t("apply"));
+      apply.onclick = async () => {
+        const enabledPacks = checks
+          .map(l => l.querySelector("input"))
+          .filter(cb => cb.checked)
+          .map(cb => cb.dataset.pack);
+        devices = await (await api("/api/filter", {
+          method: "POST",
+          body: JSON.stringify({ ip: d.ip, enabledPacks, toggles: { blockQuic: quic.checked, blockVpnPorts: vpn.checked } }),
+        })).json();
+        renderList();
+      };
+      return h("div", { class: "editor" },
+        h("div", { class: "packs" }, ...checks,
+          h("label", {}, quic, t("blockQuic")),
+          h("label", {}, vpn, t("blockVpn")),
+        ),
+        apply,
+      );
+    }
+
+    async function act(ip, action, extra = {}) {
+      const r = await api("/api/device", { method: "POST", body: JSON.stringify({ ip, action, ...extra }) });
+      return r.json();
+    }
+
+    function listen() {
+      const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+      es.onmessage = (ev) => {
+        const next = JSON.parse(ev.data);
+        if (next && next.length) { devices = next; renderList(); }
+      };
+    }
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# lemonet internal coordination — never publish
+/.lemonet/
+/CLAUDE.md
+/MEMORY.md
+
+# Build artifacts
+/dist/
+/lemonet
+/lemonet.exe
+*.test
+*.out
+
+# Frontend
+# Note: web/dist is currently committed because the panel is authored there directly. Once the
+# Preact/Vite build lands, move source to web/src, ignore web/dist again, and build it in CI.
+/web/node_modules/
+/web/.vite/
+/web/dist/*.map
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
