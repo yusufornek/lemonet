@@ -277,7 +277,7 @@
         tags.push(h("span", { class: "tag" }, names ? `${t("filtered")}: ${names}` : t("filtered")));
       }
       const remove = h("button", { class: "small danger" }, t("remove"));
-      remove.onclick = async () => { setDevices(await act(d.ip, "release"); renderList(); };
+      remove.onclick = async () => { setDevices(await act(d.ip, "release")); renderList(); };
       return h("div", { class: "item" },
         h("div", { class: "device" },
           h("span", { class: "dot " + (d.blocked ? "off" : "") }),
@@ -306,13 +306,13 @@
       speed.value = String(d.downKbps || 0);
       speed.onchange = async () => {
         const kbps = parseInt(speed.value, 10);
-        setDevices(await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps });
+        setDevices(await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps }));
         renderList();
       };
 
       const toggle = h("button", { class: "small " + (d.blocked ? "" : "danger") }, d.blocked ? t("release") : t("block"));
       toggle.onclick = async () => {
-        setDevices(await act(d.ip, d.blocked ? "release" : "block");
+        setDevices(await act(d.ip, d.blocked ? "release" : "block"));
         renderList();
       };
 
