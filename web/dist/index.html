@@ -109,8 +109,9 @@
         agree: "Agree and continue",
         scan: "Scan network", scanning: "Scanning...", stop: "Stop",
         devices: "Devices", noDevices: "No devices yet. Run a scan to discover them.",
-        blocked: "blocked", paused: "paused",
-        block: "Block", release: "Release", full: "Full speed",
+        managed: "Managed devices", noManaged: "No devices are being managed yet.",
+        blocked: "blocked", paused: "paused", filtered: "filtered",
+        block: "Block", release: "Release", remove: "Remove", full: "Full speed",
         filter: "Filter", apply: "Apply", blockQuic: "Block QUIC", blockVpn: "Block VPN ports",
       },
       tr: {
@@ -121,8 +122,9 @@
         agree: "Kabul et ve devam et",
         scan: "Ağı tara", scanning: "Taranıyor...", stop: "Durdur",
         devices: "Cihazlar", noDevices: "Henüz cihaz yok. Keşfetmek için tarama yap.",
-        blocked: "engelli", paused: "duraklatıldı",
-        block: "Engelle", release: "Bırak", full: "Tam hız",
+        managed: "Yönetilen cihazlar", noManaged: "Henüz yönetilen cihaz yok.",
+        blocked: "engelli", paused: "duraklatıldı", filtered: "filtreli",
+        block: "Engelle", release: "Bırak", remove: "Kaldır", full: "Tam hız",
         filter: "Filtre", apply: "Uygula", blockQuic: "QUIC engelle", blockVpn: "VPN portları engelle",
       },
     };
@@ -212,36 +214,80 @@
       const scanBtn = h("button", {}, t("scan"));
       scanBtn.onclick = async () => {
         scanBtn.textContent = t("scanning"); scanBtn.disabled = true;
-        devices = setDevices(await (await api("/api/scan", { method: "POST" })).json());
-        renderList(list);
+        setDevices(await (await api("/api/scan", { method: "POST" })).json());
+        renderList();
         listen();
         scanBtn.textContent = t("scan"); scanBtn.disabled = false;
       };
       const stopBtn = h("button", { class: "danger" }, t("stop"));
       stopBtn.onclick = async () => {
-        devices = setDevices(await (await api("/api/stop", { method: "POST" })).json());
+        setDevices(await (await api("/api/stop", { method: "POST" })).json());
         stopLive();
-        renderList(list);
+        renderList();
       };
-      const list = h("div", {});
-      mount(app, h("div", { class: "card" },
-        h("div", { class: "row" }, h("div", { class: "grow" }, h("strong", {}, t("devices"))), stopBtn, scanBtn),
-        list,
+      const managedList = h("div", { id: "managed-list" });
+      const allList = h("div", { id: "all-list" });
+      mount(app, h("div", {},
+        h("div", { class: "card" },
+          h("div", { class: "row" }, h("strong", { class: "grow" }, t("managed"))),
+          managedList,
+        ),
+        h("div", { class: "card" },
+          h("div", { class: "row" }, h("strong", { class: "grow" }, t("devices")), stopBtn, scanBtn),
+          allList,
+        ),
       ));
-      renderList(list);
+      renderList();
     }
 
-    function listNode() { return document.querySelector("#app .card div:last-child"); }
+    function isManaged(d) {
+      return d.blocked || d.paused || d.upKbps || d.downKbps || d.filtered;
+    }
 
-    function renderList(list) {
-      list = list || listNode();
-      if (!list) return;
-      clear(list);
-      if (!devices || devices.length === 0) {
-        list.append(h("div", { class: "empty" }, t("noDevices")));
-        return;
+    function packName(id) {
+      const p = packs.find(p => p.id === id);
+      return p ? p.name : id;
+    }
+
+    function renderList() {
+      const managedList = document.getElementById("managed-list");
+      const allList = document.getElementById("all-list");
+      if (!allList) return;
+
+      const managed = devices.filter(isManaged);
+      const rest = devices.filter(d => !isManaged(d));
+
+      clear(managedList);
+      if (managed.length === 0) managedList.append(h("div", { class: "empty" }, t("noManaged")));
+      else managed.forEach(d => managedList.append(managedRow(d)));
+
+      clear(allList);
+      if (rest.length === 0) allList.append(h("div", { class: "empty" }, t("noDevices")));
+      else rest.forEach(d => allList.append(deviceRow(d)));
+    }
+
+    function managedRow(d) {
+      const tags = [];
+      if (d.kind) tags.push(h("span", { class: "tag kind" }, d.kind));
+      if (d.blocked) tags.push(h("span", { class: "tag blocked" }, t("blocked")));
+      if (d.paused) tags.push(h("span", { class: "tag" }, t("paused")));
+      if (d.upKbps || d.downKbps) tags.push(h("span", { class: "tag" }, `${d.downKbps || "∞"}↓ / ${d.upKbps || "∞"}↑`));
+      if (d.filtered) {
+        const names = (d.packs || []).map(packName).join(", ");
+        tags.push(h("span", { class: "tag" }, names ? `${t("filtered")}: ${names}` : t("filtered")));
       }
-      for (const d of devices) list.append(deviceRow(d));
+      const remove = h("button", { class: "small danger" }, t("remove"));
+      remove.onclick = async () => { setDevices(await act(d.ip, "release"); renderList(); };
+      return h("div", { class: "item" },
+        h("div", { class: "device" },
+          h("span", { class: "dot " + (d.blocked ? "off" : "") }),
+          h("div", { class: "grow" },
+            h("div", { class: "name" }, d.hostname || d.vendor || d.ip, ...tags),
+            h("div", { class: "sub" }, `${d.ip} · ${d.mac}`),
+          ),
+          remove,
+        ),
+      );
     }
 
     function deviceRow(d) {
@@ -260,13 +306,13 @@
       speed.value = String(d.downKbps || 0);
       speed.onchange = async () => {
         const kbps = parseInt(speed.value, 10);
-        devices = await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps });
+        setDevices(await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps });
         renderList();
       };
 
       const toggle = h("button", { class: "small " + (d.blocked ? "" : "danger") }, d.blocked ? t("release") : t("block"));
       toggle.onclick = async () => {
-        devices = await act(d.ip, d.blocked ? "release" : "block");
+        setDevices(await act(d.ip, d.blocked ? "release" : "block");
         renderList();
       };
 
@@ -301,10 +347,10 @@
           .map(l => l.querySelector("input"))
           .filter(cb => cb.checked)
           .map(cb => cb.dataset.pack);
-        devices = await (await api("/api/filter", {
+        setDevices(await (await api("/api/filter", {
           method: "POST",
           body: JSON.stringify({ ip: d.ip, enabledPacks, toggles: { blockQuic: quic.checked, blockVpnPorts: vpn.checked } }),
-        })).json();
+        })).json());
         renderList();
       };
       return h("div", { class: "editor" },

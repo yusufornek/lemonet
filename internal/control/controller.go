@@ -21,15 +21,17 @@ import (
 
 // DeviceView is the device state the UI renders: discovery facts plus current policy.
 type DeviceView struct {
-	IP       string `json:"ip"`
-	MAC      string `json:"mac"`
-	Vendor   string `json:"vendor"`
-	Hostname string `json:"hostname"`
-	Kind     string `json:"kind"`
-	Blocked  bool   `json:"blocked"`
-	Paused   bool   `json:"paused"`
-	UpKbps   int    `json:"upKbps"`
-	DownKbps int    `json:"downKbps"`
+	IP       string   `json:"ip"`
+	MAC      string   `json:"mac"`
+	Vendor   string   `json:"vendor"`
+	Hostname string   `json:"hostname"`
+	Kind     string   `json:"kind"`
+	Blocked  bool     `json:"blocked"`
+	Paused   bool     `json:"paused"`
+	UpKbps   int      `json:"upKbps"`
+	DownKbps int      `json:"downKbps"`
+	Filtered bool     `json:"filtered"`
+	Packs    []string `json:"packs"`
 }
 
 type policyState struct {
@@ -42,22 +44,23 @@ type policyState struct {
 // Controller is the single owner of the live capture handle, the spoofing session, and the
 // per-device policy. It is safe for concurrent use by the HTTP handlers.
 type Controller struct {
-	iface    engine.Interface
-	handle   engine.Handle
-	scanner  *engine.Scanner
-	spoofer  *engine.Spoofer
-	relay    *engine.Relay
-	enforcer *enforce.Userspace
-	filter   *filter.Filter
-	packs    []filter.PackInfo
-	table    *engine.Table
+	iface       engine.Interface
+	handle      engine.Handle
+	relayHandle engine.Handle
+	scanner     *engine.Scanner
+	spoofer     *engine.Spoofer
+	relay       *engine.Relay
+	enforcer    *enforce.Userspace
+	filter      *filter.Filter
+	packs       []filter.PackInfo
+	table       *engine.Table
 
 	gwIP  net.IP
 	gwMAC net.HardwareAddr
 
 	mu       sync.Mutex
 	managed  map[string]policyState
-	filtered map[string]bool
+	filtered map[string]rules.DevicePolicy
 	cancel   context.CancelFunc
 	started  bool
 }
@@ -85,7 +88,7 @@ func New(iface engine.Interface) (*Controller, error) {
 		packs:    packs,
 		table:    table,
 		managed:  make(map[string]policyState),
-		filtered: make(map[string]bool),
+		filtered: make(map[string]rules.DevicePolicy),
 	}
 
 	gwIP, err := engine.GatewayIP()
@@ -102,7 +105,15 @@ func New(iface engine.Interface) (*Controller, error) {
 	}
 	c.gwIP, c.gwMAC = gwIP, gwMAC
 
-	c.relay = engine.NewRelay(handle, iface, gwMAC, table, enforcer)
+	// The relay reads on its own handle so its capture never competes with the scanner for
+	// packets on the shared handle.
+	relayHandle, err := engine.OpenLive(iface.Name)
+	if err != nil {
+		handle.Close()
+		return nil, err
+	}
+	c.relayHandle = relayHandle
+	c.relay = engine.NewRelay(relayHandle, iface, gwMAC, table, enforcer)
 	c.relay.SetInspector(flt)
 	return c, nil
 }
@@ -142,6 +153,10 @@ func (c *Controller) Devices() []DeviceView {
 		if p, ok := c.managed[d.IP.String()]; ok {
 			v.Blocked, v.Paused, v.UpKbps, v.DownKbps = p.blocked, p.paused, p.upKbps, p.downKbps
 		}
+		if pol, ok := c.filtered[d.IP.String()]; ok {
+			v.Filtered = true
+			v.Packs = pol.EnabledPacks
+		}
 		out = append(out, v)
 	}
 	// Stable order by IP so the list does not reshuffle on every refresh.
@@ -161,7 +176,7 @@ func (c *Controller) StopAll() error {
 	c.cancel = nil
 	c.started = false
 	c.managed = make(map[string]policyState)
-	c.filtered = make(map[string]bool)
+	c.filtered = make(map[string]rules.DevicePolicy)
 	c.mu.Unlock()
 
 	if cancel != nil {
@@ -228,6 +243,13 @@ func (c *Controller) SetFilter(ip string, pol rules.DevicePolicy) error {
 		return fmt.Errorf("control: device %s must be scanned before it can be filtered", ip)
 	}
 
+	// Category packs are ineffective against QUIC (social and video apps lean on UDP/443), so
+	// enabling any pack also forces QUIC blocking, which pushes traffic onto TCP where the SNI and
+	// DNS layers can act.
+	if len(pol.EnabledPacks) > 0 {
+		pol.Toggles.BlockQUIC = true
+	}
+
 	active := len(pol.EnabledPacks) > 0 || len(pol.CustomRules) > 0 || pol.Toggles != (rules.Toggles{})
 	if active {
 		c.filter.SetPolicy(addr, pol)
@@ -237,7 +259,7 @@ func (c *Controller) SetFilter(ip string, pol rules.DevicePolicy) error {
 
 	c.mu.Lock()
 	if active {
-		c.filtered[ip] = true
+		c.filtered[ip] = pol
 	} else {
 		delete(c.filtered, ip)
 	}
@@ -360,5 +382,6 @@ func (c *Controller) Close() error {
 		time.Sleep(300 * time.Millisecond) // let the spoofer send its restore frames
 	}
 	_ = c.enforcer.ClearAll()
+	_ = c.relayHandle.Close()
 	return c.handle.Close()
 }
