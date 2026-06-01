@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/dcd35175-7595-44ff-8f0c-3d2bf3e538ee" alt="lemonet" width="280">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/320ab939-71cf-4aeb-b82a-0439ce7b634c">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2f148e59-d1b9-435c-80bb-48a574bf778b">
+    <img alt="lemonet" src="https://github.com/user-attachments/assets/2f148e59-d1b9-435c-80bb-48a574bf778b" width="360">
+  </picture>
 </p>
 
 # lemonet
