@@ -497,16 +497,31 @@
       );
     }
 
+    function fmtCount(n) {
+      if (!n) return "0";
+      return n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+    }
+
+    // refreshPacks re-fetches catalog metadata (count/loading) and re-renders. While any pack is
+    // still downloading, it polls until the count settles.
+    async function refreshPacks() {
+      try { packs = await (await api("/api/packs")).json(); } catch { /* keep last */ }
+      if (view === "manage") render();
+      if (packs.some(p => p.loading)) setTimeout(refreshPacks, 1500);
+    }
+
     function categoriesSection(sel) {
       const ips = sel.map(d => d.ip);
       const rows = packs.map(p => {
         const allOn = sel.every(d => (d.packs || []).includes(p.id));
         const sw = switchEl(allOn, async (on) => {
           const d = await post("/api/packs/set", { ips, packId: p.id, enabled: on });
-          if (d) { setDevices(d); render(); }
+          if (d) { setDevices(d); render(); refreshPacks(); }
         });
+        const meta = p.loading ? "loading…"
+          : `${fmtCount(p.count)} domains${p.license ? " · " + p.license : ""}${p.attribution ? " · " + p.attribution : ""}`;
         return h("div", { class: "swrow" },
-          h("div", { class: "label" }, p.name, h("small", {}, String(p.count))), sw);
+          h("div", { class: "label" }, p.name, h("small", {}, meta)), sw);
       });
       return h("div", { class: "section" }, h("h3", {}, t("categories")), ...rows,
         h("div", { class: "hint" }, t("quicAuto")));

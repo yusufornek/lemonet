@@ -9,6 +9,7 @@ const (
 	CategoryVPN          Category = "vpn"
 	CategorySocial       Category = "social"
 	CategoryAdult        Category = "adult"
+	CategoryGambling     Category = "gambling"
 	CategoryMalware      Category = "malware"
 	CategoryEncryptedDNS Category = "encrypted-dns"
 	CategoryCustom       Category = "custom"

@@ -42,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/rules/add", s.handleRuleAdd)
 	mux.HandleFunc("/api/rules/remove", s.handleRuleRemove)
 	mux.HandleFunc("/api/packs/set", s.handlePackSet)
+	mux.HandleFunc("/api/packs/refresh", s.handlePackRefresh)
 	mux.HandleFunc("/api/toggles/set", s.handleTogglesSet)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/events", s.handleEvents)
@@ -223,6 +224,21 @@ func (s *Server) handlePackSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.ctrl.Devices())
+}
+
+func (s *Server) handlePackRefresh(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PackID string `json:"packId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.ctrl.RefreshPack(req.PackID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.ctrl.Packs())
 }
 
 func (s *Server) handleTogglesSet(w http.ResponseWriter, r *http.Request) {

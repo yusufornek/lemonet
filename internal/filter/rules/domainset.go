@@ -2,11 +2,17 @@
 // and the matcher that decides whether a domain or flow is blocked.
 package rules
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // DomainSet matches a domain against a set of suffixes. Adding "example.com" matches
 // "example.com" and any subdomain such as "ads.example.com", which is how blocklists are scoped.
+// It is safe for concurrent use: the relay matches against it while a blocklist refresh replaces
+// its contents.
 type DomainSet struct {
+	mu      sync.RWMutex
 	entries map[string]struct{}
 }
 
@@ -16,16 +22,39 @@ func NewDomainSet() *DomainSet {
 
 func (s *DomainSet) Add(domain string) {
 	d := normalize(domain)
-	if d != "" {
-		s.entries[d] = struct{}{}
+	if d == "" {
+		return
 	}
+	s.mu.Lock()
+	s.entries[d] = struct{}{}
+	s.mu.Unlock()
 }
 
-func (s *DomainSet) Len() int { return len(s.entries) }
+// Set atomically replaces all entries with the normalized, de-duplicated domains. Used to load or
+// refresh a pack's list without a lock held during parsing.
+func (s *DomainSet) Set(domains []string) {
+	m := make(map[string]struct{}, len(domains))
+	for _, d := range domains {
+		if n := normalize(d); n != "" {
+			m[n] = struct{}{}
+		}
+	}
+	s.mu.Lock()
+	s.entries = m
+	s.mu.Unlock()
+}
+
+func (s *DomainSet) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.entries)
+}
 
 // Match reports whether domain equals or is a subdomain of any entry.
 func (s *DomainSet) Match(domain string) bool {
 	d := normalize(domain)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for d != "" {
 		if _, ok := s.entries[d]; ok {
 			return true

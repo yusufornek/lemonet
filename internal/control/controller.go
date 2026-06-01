@@ -54,7 +54,7 @@ type Controller struct {
 	relay       *engine.Relay
 	enforcer    *enforce.Userspace
 	filter      *filter.Filter
-	packs       []filter.PackInfo
+	packMgr     *filter.Manager
 	table       *engine.Table
 	guard       engine.SessionGuard
 
@@ -79,8 +79,7 @@ func New(iface engine.Interface) (*Controller, error) {
 
 	table := engine.NewTable()
 	enforcer := enforce.NewUserspace()
-	rulesEngine, packs := filter.DefaultEngine()
-	flt := filter.New(rulesEngine)
+	packMgr := filter.NewManager()
 
 	c := &Controller{
 		iface:    iface,
@@ -88,8 +87,8 @@ func New(iface engine.Interface) (*Controller, error) {
 		scanner:  engine.NewScanner(iface, handle, engine.LoadVendorDB()),
 		spoofer:  engine.NewSpoofer(handle, table),
 		enforcer: enforcer,
-		filter:   flt,
-		packs:    packs,
+		filter:   packMgr.Filter(),
+		packMgr:  packMgr,
 		table:    table,
 		guard:    engine.NewSessionGuard(),
 		managed:  make(map[string]policyState),
@@ -130,13 +129,16 @@ func New(iface engine.Interface) (*Controller, error) {
 	}
 	c.relayHandle = relayHandle
 	c.relay = engine.NewRelay(relayHandle, iface, gwMAC, table, enforcer)
-	c.relay.SetInspector(flt)
+	c.relay.SetInspector(c.filter)
 	return c, nil
 }
 
 func (c *Controller) Gateway() (net.IP, net.HardwareAddr) { return c.gwIP, c.gwMAC }
 
-func (c *Controller) Packs() []filter.PackInfo { return c.packs }
+func (c *Controller) Packs() []filter.PackInfo { return c.packMgr.Packs() }
+
+// RefreshPack forces a re-download of a remote pack's blocklist.
+func (c *Controller) RefreshPack(id string) error { return c.packMgr.Refresh(id) }
 
 // Scan sweeps the subnet and merges the result into the persistent table the relay routes with.
 func (c *Controller) Scan(ctx context.Context) ([]DeviceView, error) {
@@ -379,6 +381,15 @@ func (c *Controller) RemoveRule(ips []string, action, domain string) error {
 func (c *Controller) SetPack(ips []string, packID string, enabled bool) error {
 	if err := c.knownIPs(ips); err != nil {
 		return err
+	}
+	// A remote pack downloads its list the first time it is enabled. Do it once, in the background,
+	// so the request returns immediately; the pack reports Loading then Loaded via /api/packs.
+	if enabled {
+		go func() {
+			if err := c.packMgr.EnsureLoaded(packID); err != nil {
+				log.Printf("control: blocklist %s load failed: %v", packID, err)
+			}
+		}()
 	}
 	for _, ip := range ips {
 		pol := c.currentPolicy(ip)
