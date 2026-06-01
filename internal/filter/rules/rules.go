@@ -1,5 +1,7 @@
 package rules
 
+import "sync"
+
 // Category groups list packs by what they block.
 type Category string
 
@@ -43,19 +45,25 @@ type Toggles struct {
 // ListPack is a curated set of domains for one category. Entries are loaded separately so the
 // pack metadata stays small and the data can be refreshed from upstream.
 type ListPack struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Category    Category   `json:"category"`
-	SourceURL   string     `json:"sourceUrl"`
-	License     string     `json:"license"`
-	Attribution string     `json:"attribution"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Category    Category `json:"category"`
+	SourceURL   string   `json:"sourceUrl"`
+	License     string   `json:"license"`
+	Attribution string   `json:"attribution"`
+	once        sync.Once
 	domains     *DomainSet `json:"-"`
 }
 
+// Domains returns the pack's domain set, creating it exactly once. sync.Once makes the lazy init
+// race-free: the relay matcher and a background blocklist loader may both call this for the first
+// time concurrently, and both receive the same set (no lost update, no data race).
 func (p *ListPack) Domains() *DomainSet {
-	if p.domains == nil {
-		p.domains = NewDomainSet()
-	}
+	p.once.Do(func() {
+		if p.domains == nil {
+			p.domains = NewDomainSet()
+		}
+	})
 	return p.domains
 }
 

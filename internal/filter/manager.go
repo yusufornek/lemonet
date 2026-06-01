@@ -74,7 +74,9 @@ func NewManager() *Manager {
 	return m
 }
 
-func (m *Manager) listPath(id string) string { return filepath.Join(m.dir, id+".txt") }
+// listPath returns the cache file for a pack. filepath.Base neutralizes any path traversal in id
+// (defense in depth; callers pass catalog-validated ids).
+func (m *Manager) listPath(id string) string { return filepath.Join(m.dir, filepath.Base(id)+".txt") }
 
 // Filter returns the FlowInspector the relay uses.
 func (m *Manager) Filter() *Filter { return m.filter }
@@ -115,18 +117,32 @@ func (m *Manager) EnsureLoaded(id string) error {
 	return err
 }
 
-// Refresh forces a re-download of a remote pack (used by a periodic refresh or a manual request).
+// Refresh forces a re-download of a remote pack. It shares the Loading guard with EnsureLoaded so a
+// manual refresh and an enable-triggered load never fetch the same pack twice at once. The path is
+// built from the validated catalog id (st.def.id), never the raw argument.
 func (m *Manager) Refresh(id string) error {
 	m.mu.Lock()
 	st, ok := m.states[id]
-	m.mu.Unlock()
 	if !ok || st.def.url == "" {
+		m.mu.Unlock()
 		return fmt.Errorf("filter: %s is not a refreshable pack", id)
 	}
-	if m.dir != "" {
-		_ = os.Remove(m.listPath(id) + ".etag") // force a full GET
+	if st.info.Loading {
+		m.mu.Unlock()
+		return nil // a load is already in progress
 	}
-	return m.loadRemote(st)
+	st.info.Loading = true
+	m.mu.Unlock()
+
+	if m.dir != "" {
+		_ = os.Remove(m.listPath(st.def.id) + ".etag") // force a full GET
+	}
+	err := m.loadRemote(st)
+
+	m.mu.Lock()
+	st.info.Loading = false
+	m.mu.Unlock()
+	return err
 }
 
 // loadRemote fetches (conditionally) and applies a remote pack's list. A failed fetch keeps any

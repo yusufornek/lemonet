@@ -40,8 +40,12 @@ func fetchList(url, listPath string) error {
 	if err != nil {
 		return err
 	}
-	if etag, err := os.ReadFile(listPath + ".etag"); err == nil && len(etag) > 0 {
-		req.Header.Set("If-None-Match", string(etag))
+	// Only do a conditional request when the cached body still exists; otherwise a 304 would leave
+	// us with nothing to read and the pack stuck.
+	if _, err := os.Stat(listPath); err == nil {
+		if etag, err := os.ReadFile(listPath + ".etag"); err == nil && len(etag) > 0 {
+			req.Header.Set("If-None-Match", string(etag))
+		}
 	}
 
 	resp, err := (&http.Client{Timeout: fetchTimeout}).Do(req)
@@ -65,9 +69,12 @@ func fetchList(url, listPath string) error {
 	defer os.Remove(tmpName) // harmless after a successful rename
 
 	n, err := io.Copy(tmp, io.LimitReader(resp.Body, maxListBytes+1))
-	_ = tmp.Close()
+	closeErr := tmp.Close() // some filesystems report write errors only on Close
 	if err != nil {
 		return err
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	if n > maxListBytes {
 		return fmt.Errorf("filter: %s exceeds the %d-byte cap", url, maxListBytes)

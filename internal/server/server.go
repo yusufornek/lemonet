@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -32,20 +33,22 @@ func New(token, version string, ctrl *control.Controller, static fs.FS, iface, s
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/state", s.handleState)
-	mux.HandleFunc("/api/consent", s.handleConsent)
-	mux.HandleFunc("/api/scan", s.handleScan)
-	mux.HandleFunc("/api/devices", s.handleDevices)
-	mux.HandleFunc("/api/device", s.handleDevice)
-	mux.HandleFunc("/api/packs", s.handlePacks)
-	mux.HandleFunc("/api/filter", s.handleFilter)
-	mux.HandleFunc("/api/rules/add", s.handleRuleAdd)
-	mux.HandleFunc("/api/rules/remove", s.handleRuleRemove)
-	mux.HandleFunc("/api/packs/set", s.handlePackSet)
-	mux.HandleFunc("/api/packs/refresh", s.handlePackRefresh)
-	mux.HandleFunc("/api/toggles/set", s.handleTogglesSet)
-	mux.HandleFunc("/api/stop", s.handleStop)
-	mux.HandleFunc("/api/events", s.handleEvents)
+	// Read endpoints are GET; every state-changing endpoint is POST-only so a GET-with-body cannot
+	// reach it and slip past the same-origin check (which secure() applies to non-GET requests).
+	mux.HandleFunc("GET /api/state", s.handleState)
+	mux.HandleFunc("GET /api/devices", s.handleDevices)
+	mux.HandleFunc("GET /api/packs", s.handlePacks)
+	mux.HandleFunc("GET /api/events", s.handleEvents)
+	mux.HandleFunc("POST /api/consent", s.handleConsent)
+	mux.HandleFunc("POST /api/scan", s.handleScan)
+	mux.HandleFunc("POST /api/device", s.handleDevice)
+	mux.HandleFunc("POST /api/filter", s.handleFilter)
+	mux.HandleFunc("POST /api/rules/add", s.handleRuleAdd)
+	mux.HandleFunc("POST /api/rules/remove", s.handleRuleRemove)
+	mux.HandleFunc("POST /api/packs/set", s.handlePackSet)
+	mux.HandleFunc("POST /api/packs/refresh", s.handlePackRefresh)
+	mux.HandleFunc("POST /api/toggles/set", s.handleTogglesSet)
+	mux.HandleFunc("POST /api/stop", s.handleStop)
 	mux.Handle("/", http.FileServer(http.FS(s.static)))
 	return s.secure(mux)
 }
@@ -234,10 +237,12 @@ func (s *Server) handlePackRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if err := s.ctrl.RefreshPack(req.PackID); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	// Run the (possibly slow) download in the background; the panel polls /api/packs for progress.
+	go func() {
+		if err := s.ctrl.RefreshPack(req.PackID); err != nil {
+			log.Printf("server: refresh pack %s failed: %v", req.PackID, err)
+		}
+	}()
 	writeJSON(w, s.ctrl.Packs())
 }
 

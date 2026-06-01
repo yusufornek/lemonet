@@ -506,7 +506,8 @@
     // still downloading, it polls until the count settles.
     async function refreshPacks() {
       try { packs = await (await api("/api/packs")).json(); } catch { /* keep last */ }
-      if (view === "manage") render();
+      if (view !== "manage") return; // stop polling once the user leaves the management view
+      render();
       if (packs.some(p => p.loading)) setTimeout(refreshPacks, 1500);
     }
 

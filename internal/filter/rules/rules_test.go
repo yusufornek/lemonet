@@ -1,6 +1,26 @@
 package rules
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
+
+// TestListPackDomainsConcurrent guards the lazy-init race that once let a freshly-enabled remote
+// pack match an empty set: the relay matcher and the background loader both touch Domains() first.
+// Run with -race.
+func TestListPackDomainsConcurrent(t *testing.T) {
+	p := &ListPack{ID: "x"}
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); p.Domains().Set([]string{"bad.test"}) }()
+		go func() { defer wg.Done(); _ = p.Domains().Match("a.bad.test") }()
+	}
+	wg.Wait()
+	if !p.Domains().Match("bad.test") {
+		t.Error("after concurrent init and set, the pack should contain the domain")
+	}
+}
 
 func TestDomainSetSuffixMatch(t *testing.T) {
 	s := NewDomainSet()
