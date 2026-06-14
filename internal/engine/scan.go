@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -28,6 +29,7 @@ func NewScanner(iface Interface, h Handle, vendor VendorDB) *Scanner {
 // handle drop replies that arrive during the send burst, which leaves only the fastest responder
 // (the gateway) visible. A small gap keeps send and receive interleaved.
 const sweepProbeGap = 3 * time.Millisecond
+const resolveMACConflictWindow = 150 * time.Millisecond
 
 // Sweep ARP-requests every address in the subnet and collects replies until ctx is done.
 // Callers should pass a context with a deadline (a few seconds is plenty on a home LAN).
@@ -50,6 +52,7 @@ func (s *Scanner) Sweep(ctx context.Context) ([]Device, error) {
 
 func (s *Scanner) probeRounds(ctx context.Context, hosts []net.IP) {
 	for {
+		s.probeIPv6AllNodes()
 		for _, ip := range hosts {
 			frame, err := BuildARPRequest(s.iface.IP, s.iface.MAC, ip)
 			if err != nil {
@@ -62,6 +65,17 @@ func (s *Scanner) probeRounds(ctx context.Context, hosts []net.IP) {
 			case <-time.After(sweepProbeGap):
 			}
 		}
+	}
+}
+
+func (s *Scanner) probeIPv6AllNodes() {
+	src := s.iface.LinkLocal
+	if src == nil {
+		src = linkLocalFromMAC(s.iface.MAC)
+	}
+	frame, err := BuildAllNodesEchoRequest(s.iface.MAC, src)
+	if err == nil {
+		_ = s.handle.Send(frame)
 	}
 }
 
@@ -115,10 +129,20 @@ func (s *Scanner) ResolveMAC(ctx context.Context, ip net.IP) (net.HardwareAddr, 
 		return nil, err
 	}
 
+	var resolved net.HardwareAddr
+	var settle <-chan time.Time
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("engine: timed out resolving %s", ip)
+		case <-settle:
+			return resolved, nil
 		default:
 		}
 		pkt, err := s.handle.Recv()
@@ -129,10 +153,25 @@ func (s *Scanner) ResolveMAC(ctx context.Context, ip net.IP) (net.HardwareAddr, 
 		if !ok {
 			continue
 		}
-		if net.IP(arp.SourceProtAddress).Equal(ip) {
-			return net.HardwareAddr(arp.SourceHwAddress), nil
+		if !net.IP(arp.SourceProtAddress).Equal(ip) || !arpTargetsInterface(arp, s.iface) {
+			continue
+		}
+		mac := append(net.HardwareAddr(nil), arp.SourceHwAddress...)
+		if resolved == nil {
+			resolved = mac
+			timer = time.NewTimer(resolveMACConflictWindow)
+			settle = timer.C
+			continue
+		}
+		if !bytes.Equal(resolved, mac) {
+			return nil, fmt.Errorf("engine: conflicting ARP replies for %s", ip)
 		}
 	}
+}
+
+func arpTargetsInterface(arp *layers.ARP, iface Interface) bool {
+	return net.IP(arp.DstProtAddress).Equal(iface.IP.To4()) &&
+		bytes.Equal(arp.DstHwAddress, iface.MAC)
 }
 
 // DiscoverRouterLL solicits a Router Advertisement and returns the router's IPv6 link-local
@@ -196,13 +235,19 @@ func (s *Scanner) readReplies(ctx context.Context, table *Table, done chan<- str
 		if err != nil || pkt == nil {
 			continue
 		}
+		if s.recordIPv6Source(pkt, table) {
+			continue
+		}
 		arp, ok := arpSender(pkt)
 		if !ok {
 			continue
 		}
 		ip := net.IP(arp.SourceProtAddress)
 		mac := net.HardwareAddr(arp.SourceHwAddress)
-		if ip.Equal(s.iface.IP) || ip.Equal(net.IPv4zero) {
+		if !s.acceptARPSource(ip) {
+			continue
+		}
+		if existing, ok := table.GetByIP(ip); ok && existing.MAC.String() != mac.String() {
 			continue
 		}
 		table.Upsert(Device{
@@ -214,13 +259,36 @@ func (s *Scanner) readReplies(ctx context.Context, table *Table, done chan<- str
 	}
 }
 
+func (s *Scanner) recordIPv6Source(pkt gopacket.Packet, table *Table) bool {
+	ethLayer := pkt.Layer(layers.LayerTypeEthernet)
+	ip6Layer := pkt.Layer(layers.LayerTypeIPv6)
+	if ethLayer == nil || ip6Layer == nil {
+		return false
+	}
+	eth := ethLayer.(*layers.Ethernet)
+	if bytes.Equal(eth.SrcMAC, s.iface.MAC) {
+		return true
+	}
+	ip6 := ip6Layer.(*layers.IPv6)
+	table.RecordV6(eth.SrcMAC, ip6.SrcIP)
+	return true
+}
+
+func (s *Scanner) acceptARPSource(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil || ip4.Equal(s.iface.IP.To4()) || ip4.Equal(net.IPv4zero) {
+		return false
+	}
+	return s.iface.Subnet == nil || s.iface.Subnet.Contains(ip4)
+}
+
 func arpReply(pkt gopacket.Packet) (*layers.ARP, bool) {
 	l := pkt.Layer(layers.LayerTypeARP)
 	if l == nil {
 		return nil, false
 	}
 	arp, ok := l.(*layers.ARP)
-	if !ok || arp.Operation != layers.ARPReply {
+	if !ok || arp.Operation != layers.ARPReply || !validARPAddressFields(arp) || !arpMatchesEthernetSource(pkt, arp) {
 		return nil, false
 	}
 	return arp, true
@@ -234,10 +302,32 @@ func arpSender(pkt gopacket.Packet) (*layers.ARP, bool) {
 		return nil, false
 	}
 	arp, ok := l.(*layers.ARP)
-	if !ok {
+	if !ok || !validARPOperation(arp.Operation) || !validARPAddressFields(arp) || !arpMatchesEthernetSource(pkt, arp) {
 		return nil, false
 	}
 	return arp, true
+}
+
+func arpMatchesEthernetSource(pkt gopacket.Packet, arp *layers.ARP) bool {
+	l := pkt.Layer(layers.LayerTypeEthernet)
+	if l == nil {
+		return false
+	}
+	eth, ok := l.(*layers.Ethernet)
+	return ok && bytes.Equal(eth.SrcMAC, arp.SourceHwAddress)
+}
+
+func validARPOperation(operation uint16) bool {
+	return operation == layers.ARPRequest || operation == layers.ARPReply
+}
+
+func validARPAddressFields(arp *layers.ARP) bool {
+	return arp.HwAddressSize == 6 &&
+		arp.ProtAddressSize == 4 &&
+		len(arp.SourceHwAddress) == 6 &&
+		len(arp.DstHwAddress) == 6 &&
+		len(arp.SourceProtAddress) == 4 &&
+		len(arp.DstProtAddress) == 4
 }
 
 // subnetHosts enumerates usable host addresses in n. It refuses subnets wider than /16 to
@@ -252,7 +342,7 @@ func subnetHosts(n *net.IPNet) ([]net.IP, error) {
 	}
 
 	base := n.IP.Mask(n.Mask).To4()
-	count := 1 << uint(bits-ones)
+	count := 1 << (bits - ones)
 	hosts := make([]net.IP, 0, count)
 	for i := 1; i < count-1; i++ {
 		ip := make(net.IP, 4)

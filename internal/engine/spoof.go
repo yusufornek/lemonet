@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"sync"
@@ -33,12 +34,14 @@ type Spoofer struct {
 	sendErrs atomic.Uint64
 }
 
-func (s *Spoofer) send(frame []byte) {
+func (s *Spoofer) send(frame []byte) error {
 	if err := s.handle.Send(frame); err != nil {
 		if s.sendErrs.Add(1) == 1 {
 			log.Printf("spoof: ARP injection failed (will suppress further): %v", err)
 		}
+		return err
 	}
+	return nil
 }
 
 func NewSpoofer(h Handle, table *Table) *Spoofer {
@@ -64,31 +67,44 @@ func (s *Spoofer) Update(cfg SpoofConfig) {
 	s.mu.Unlock()
 }
 
+func (s *Spoofer) UpdateNow(cfg SpoofConfig) {
+	s.Update(cfg)
+	s.poisonOnce()
+}
+
 // RestoreDevice re-asserts the real gateway mapping to a single device, used when a device stops
 // being managed so its connectivity recovers immediately instead of waiting for its cache to age.
-func (s *Spoofer) RestoreDevice(t Device) {
+func (s *Spoofer) RestoreDevice(t Device) error {
 	s.mu.Lock()
 	cfg := s.cfg
 	s.mu.Unlock()
+	var restoreErr error
 	for i := 0; i < 4; i++ {
 		if frame, err := BuildARPReply(cfg.GatewayIP, cfg.GatewayMAC, t.IP, t.MAC); err == nil {
-			s.send(frame)
+			restoreErr = errors.Join(restoreErr, s.send(frame))
+		} else {
+			restoreErr = errors.Join(restoreErr, err)
 		}
 		if cfg.GatewayIP6 != nil {
 			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
-				s.send(frame)
+				restoreErr = errors.Join(restoreErr, s.send(frame))
+			} else {
+				restoreErr = errors.Join(restoreErr, err)
 			}
 			for _, v6 := range s.v6Targets(t.MAC) {
 				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, t.MAC); err == nil {
-					s.send(frame)
+					restoreErr = errors.Join(restoreErr, s.send(frame))
+				} else {
+					restoreErr = errors.Join(restoreErr, err)
 				}
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	return restoreErr
 }
 
-// Start poisons the targets on a ticker until ctx is cancelled, then restores their caches.
+// Start poisons the targets on a ticker until ctx is canceled, then restores their caches.
 // ARP caches heal over time and from legitimate traffic, so the replies must be resent.
 func (s *Spoofer) Start(ctx context.Context, cfg SpoofConfig) error {
 	if cfg.Interval <= 0 {
@@ -121,31 +137,31 @@ func (s *Spoofer) poisonOnce() {
 		// Tell the target the gateway lives at our MAC, as both a reply and a request: some
 		// stacks ignore unsolicited replies but still cache the sender of a request.
 		if frame, err := BuildARPReply(cfg.GatewayIP, cfg.SelfMAC, t.IP, t.MAC); err == nil {
-			s.send(frame)
+			_ = s.send(frame)
 		}
 		if frame, err := BuildPoisonRequest(cfg.GatewayIP, cfg.SelfMAC, t.IP, t.MAC); err == nil {
-			s.send(frame)
+			_ = s.send(frame)
 		}
 		// Full duplex also tells the gateway the target lives at our MAC.
 		if cfg.FullDuplex {
 			if frame, err := BuildARPReply(t.IP, cfg.SelfMAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
-				s.send(frame)
+				_ = s.send(frame)
 			}
 			if frame, err := BuildPoisonRequest(t.IP, cfg.SelfMAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
-				s.send(frame)
+				_ = s.send(frame)
 			}
 		}
 		// IPv6 device side: tell the target the gateway's link-local is at our MAC so its IPv6
 		// uploads flow through us (enables blocking and filtering of IPv6 traffic).
 		if cfg.GatewayIP6 != nil {
 			if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.SelfMAC); err == nil {
-				s.send(frame)
+				_ = s.send(frame)
 			}
 			// IPv6 gateway side: tell the gateway each of the device's IPv6 addresses is at our
 			// MAC so the download direction also flows through us (enables IPv6 throttling).
 			for _, v6 := range s.v6Targets(t.MAC) {
 				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, cfg.SelfMAC); err == nil {
-					s.send(frame)
+					_ = s.send(frame)
 				}
 			}
 		}
@@ -161,28 +177,37 @@ func (s *Spoofer) Restore() error {
 	s.mu.Unlock()
 
 	const repeats = 4
+	var restoreErr error
 	for i := 0; i < repeats; i++ {
 		for _, t := range cfg.Targets {
-			if frame, err := BuildARPReply(cfg.GatewayIP, cfg.GatewayMAC, t.IP, t.MAC); err == nil {
-				s.send(frame)
+			if frame, buildErr := BuildARPReply(cfg.GatewayIP, cfg.GatewayMAC, t.IP, t.MAC); buildErr == nil {
+				restoreErr = errors.Join(restoreErr, s.send(frame))
+			} else {
+				restoreErr = errors.Join(restoreErr, buildErr)
 			}
 			if cfg.FullDuplex {
-				if frame, err := BuildARPReply(t.IP, t.MAC, cfg.GatewayIP, cfg.GatewayMAC); err == nil {
-					s.send(frame)
+				if frame, buildErr := BuildARPReply(t.IP, t.MAC, cfg.GatewayIP, cfg.GatewayMAC); buildErr == nil {
+					restoreErr = errors.Join(restoreErr, s.send(frame))
+				} else {
+					restoreErr = errors.Join(restoreErr, buildErr)
 				}
 			}
 			if cfg.GatewayIP6 != nil {
-				if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); err == nil {
-					s.send(frame)
+				if frame, buildErr := BuildNeighborAdvertisement(cfg.SelfMAC, t.MAC, cfg.GatewayIP6, cfg.GatewayIP6, cfg.GatewayMAC); buildErr == nil {
+					restoreErr = errors.Join(restoreErr, s.send(frame))
+				} else {
+					restoreErr = errors.Join(restoreErr, buildErr)
 				}
 				for _, v6 := range s.v6Targets(t.MAC) {
-					if frame, err := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, t.MAC); err == nil {
-						s.send(frame)
+					if frame, buildErr := BuildNeighborAdvertisement(cfg.SelfMAC, cfg.GatewayMAC, v6, v6, t.MAC); buildErr == nil {
+						restoreErr = errors.Join(restoreErr, s.send(frame))
+					} else {
+						restoreErr = errors.Join(restoreErr, buildErr)
 					}
 				}
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return nil
+	return restoreErr
 }

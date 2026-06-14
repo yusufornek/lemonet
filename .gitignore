@@ -2,6 +2,7 @@
 /.lemonet/
 /CLAUDE.md
 /MEMORY.md
+/AGENTS.md
 
 # Build artifacts
 /dist/

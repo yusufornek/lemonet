@@ -4,7 +4,9 @@
 package dns
 
 import (
+	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -13,6 +15,12 @@ import (
 type Query struct {
 	Name string
 	Type uint16
+}
+
+type Response struct {
+	Names []string
+	IPs   []netip.Addr
+	IPTTL time.Duration
 }
 
 // ParseQuery extracts the first question from a DNS request payload.
@@ -35,10 +43,49 @@ func BuildRefusal(query []byte) ([]byte, error) {
 	resp := new(dns.Msg)
 	resp.SetRcode(&req, dns.RcodeNameError)
 
-	opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
-	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeFiltered})
-	resp.Extra = append(resp.Extra, opt)
+	if req.IsEdns0() != nil {
+		opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+		opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeFiltered})
+		resp.Extra = append(resp.Extra, opt)
+	}
 	return resp.Pack()
+}
+
+func BuildRefusalFromResponse(payload []byte) ([]byte, error) {
+	var in dns.Msg
+	if err := in.Unpack(payload); err != nil {
+		return nil, err
+	}
+	resp := new(dns.Msg)
+	resp.MsgHdr = dns.MsgHdr{
+		Id:                 in.Id,
+		Response:           true,
+		RecursionDesired:   in.RecursionDesired,
+		RecursionAvailable: in.RecursionAvailable,
+		Rcode:              dns.RcodeNameError,
+	}
+	resp.Question = append([]dns.Question(nil), in.Question...)
+	if in.IsEdns0() != nil {
+		opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+		opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeFiltered})
+		resp.Extra = append(resp.Extra, opt)
+	}
+	return resp.Pack()
+}
+
+func ParseResponse(payload []byte) (Response, bool) {
+	var msg dns.Msg
+	if err := msg.Unpack(payload); err != nil || !msg.Response {
+		return Response{}, false
+	}
+	out := Response{}
+	for _, q := range msg.Question {
+		out.Names = append(out.Names, cleanName(q.Name))
+	}
+	out = appendResourceRecords(out, msg.Answer)
+	out = appendResourceRecords(out, msg.Ns)
+	out = appendResourceRecords(out, msg.Extra)
+	return out, len(out.Names) > 0 || len(out.IPs) > 0
 }
 
 // StripECH removes the ech parameter from HTTPS and SVCB answers. It reports whether anything
@@ -48,8 +95,22 @@ func StripECH(response []byte) ([]byte, bool) {
 	if err := m.Unpack(response); err != nil {
 		return response, false
 	}
+	changed := stripECHRecords(m.Answer)
+	changed = stripECHRecords(m.Ns) || changed
+	changed = stripECHRecords(m.Extra) || changed
+	if !changed {
+		return response, false
+	}
+	packed, err := m.Pack()
+	if err != nil {
+		return response, false
+	}
+	return packed, true
+}
+
+func stripECHRecords(records []dns.RR) bool {
 	changed := false
-	for _, rr := range m.Answer {
+	for _, rr := range records {
 		switch v := rr.(type) {
 		case *dns.HTTPS:
 			if removeECH(&v.SVCB) {
@@ -61,14 +122,7 @@ func StripECH(response []byte) ([]byte, bool) {
 			}
 		}
 	}
-	if !changed {
-		return response, false
-	}
-	packed, err := m.Pack()
-	if err != nil {
-		return response, false
-	}
-	return packed, true
+	return changed
 }
 
 func removeECH(svcb *dns.SVCB) bool {
@@ -89,4 +143,82 @@ func removeECH(svcb *dns.SVCB) bool {
 // it makes Firefox disable its built-in DoH and fall back to the system resolver.
 func IsFirefoxCanary(name string) bool {
 	return strings.EqualFold(strings.TrimSuffix(name, "."), "use-application-dns.net")
+}
+
+func cleanName(name string) string {
+	return strings.TrimSuffix(name, ".")
+}
+
+func appendTarget(names []string, target string) []string {
+	cleaned := cleanName(target)
+	if cleaned == "" || cleaned == "." {
+		return names
+	}
+	return append(names, cleaned)
+}
+
+func appendResourceRecords(out Response, records []dns.RR) Response {
+	for _, rr := range records {
+		out.Names = append(out.Names, cleanName(rr.Header().Name))
+		switch v := rr.(type) {
+		case *dns.A:
+			if addr, ok := netip.AddrFromSlice(v.A.To4()); ok {
+				out.IPs = append(out.IPs, addr)
+				out.IPTTL = maxDuration(out.IPTTL, recordTTL(rr))
+			}
+		case *dns.AAAA:
+			if addr, ok := netip.AddrFromSlice(v.AAAA.To16()); ok {
+				out.IPs = append(out.IPs, addr)
+				out.IPTTL = maxDuration(out.IPTTL, recordTTL(rr))
+			}
+		case *dns.CNAME:
+			out.Names = append(out.Names, cleanName(v.Target))
+		case *dns.HTTPS:
+			out.Names = appendTarget(out.Names, v.Target)
+			before := len(out.IPs)
+			out.IPs = appendSVCBHintIPs(out.IPs, v.Value)
+			if len(out.IPs) > before {
+				out.IPTTL = maxDuration(out.IPTTL, recordTTL(rr))
+			}
+		case *dns.SVCB:
+			out.Names = appendTarget(out.Names, v.Target)
+			before := len(out.IPs)
+			out.IPs = appendSVCBHintIPs(out.IPs, v.Value)
+			if len(out.IPs) > before {
+				out.IPTTL = maxDuration(out.IPTTL, recordTTL(rr))
+			}
+		}
+	}
+	return out
+}
+
+func recordTTL(rr dns.RR) time.Duration {
+	return time.Duration(rr.Header().Ttl) * time.Second
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if b > a {
+		return b
+	}
+	return a
+}
+
+func appendSVCBHintIPs(ips []netip.Addr, values []dns.SVCBKeyValue) []netip.Addr {
+	for _, value := range values {
+		switch hint := value.(type) {
+		case *dns.SVCBIPv4Hint:
+			for _, ip := range hint.Hint {
+				if addr, ok := netip.AddrFromSlice(ip.To4()); ok {
+					ips = append(ips, addr)
+				}
+			}
+		case *dns.SVCBIPv6Hint:
+			for _, ip := range hint.Hint {
+				if addr, ok := netip.AddrFromSlice(ip.To16()); ok {
+					ips = append(ips, addr)
+				}
+			}
+		}
+	}
+	return ips
 }

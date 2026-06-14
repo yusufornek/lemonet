@@ -65,7 +65,10 @@
     button.ghost { background: transparent; color: var(--accent); }
     button.small { padding: 5px 10px; font-size: 13px; }
     button:disabled { opacity: 0.4; cursor: default; }
-    .row { display: flex; align-items: center; gap: 10px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .row-offset-top { margin-top: 8px; }
+    .row-gap-small { margin-bottom: 6px; }
+    .row-gap-large { margin-bottom: 16px; }
     .grow { flex: 1; }
     .item { border-top: 1px solid var(--border); }
     .item:first-child { border-top: none; }
@@ -79,6 +82,7 @@
     .name { font-weight: 500; }
     .sub { color: var(--muted); font-size: 12px; }
     select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    select.duration { max-width: 136px; }
     .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(0,113,227,0.12); color: var(--accent); margin-left: 6px; }
     .tag.blocked { background: rgba(215,0,21,0.12); color: var(--danger); }
     .tag.kind { background: rgba(120,120,128,0.16); color: var(--muted); }
@@ -97,6 +101,7 @@
     .section h3 { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
     .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
     input[type=text].domain { width: 100%; max-width: 300px; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+    textarea.policy-json { width: 100%; min-height: 118px; resize: vertical; padding: 10px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     .seg button { background: transparent; color: var(--text); border: none; border-radius: 0; padding: 7px 14px; }
     .seg button.active { background: var(--accent); color: #fff; }
@@ -106,10 +111,36 @@
     .chip.allow { background: rgba(52,199,89,0.16); color: #1a7f37; }
     @media (prefers-color-scheme: dark) { .chip.allow { color: #30d158; } }
     .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 15px; padding: 0 0 0 6px; line-height: 1; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 12px 0; }
+    .metric { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: rgba(120,120,128,0.08); }
+    .metric strong { display: block; font-size: 18px; }
+    .metric small { color: var(--muted); font-size: 12px; }
+    .event-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .event { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+    .event:first-child { border-top: none; }
+    .event small { color: var(--muted); margin-left: auto; }
+    .section-title-gap { margin-top: 18px; }
+    .status-ok { color: #1a7f37; }
+    .status-warn { color: #b35a00; }
+    .status-fail { color: var(--danger); }
+    @media (prefers-color-scheme: dark) {
+      .status-ok { color: #30d158; }
+      .status-warn { color: #ffd60a; }
+    }
+    .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .profile-card { text-align: left; background: rgba(120,120,128,0.10); color: var(--text); border: 1px solid var(--border); padding: 10px 12px; }
+    .profile-card small { display: block; color: var(--muted); line-height: 1.35; margin-top: 4px; }
+    .decision { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    .decision strong { color: var(--text); }
     .swrow { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--border); }
     .swrow:first-of-type { border-top: none; }
-    .swrow .label { font-size: 14px; }
+    .swrow .label { font-size: 14px; min-width: 0; padding-right: 12px; }
     .swrow .label small { display: block; color: var(--muted); font-size: 12px; }
+    .pack-domain-control { margin-top: 6px; }
+    button.pack-domain-toggle { padding: 0; background: transparent; border: none; color: var(--accent); font-size: 12px; font-weight: 500; }
+    .pack-domains { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .pack-domains code { max-width: 100%; overflow-wrap: anywhere; padding: 2px 6px; border: 1px solid var(--border); border-radius: 7px; background: rgba(120,120,128,0.10); color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pack-domains .more { color: var(--muted); }
     .sw { position: relative; display: inline-block; width: 42px; height: 26px; flex: none; }
     .sw input { opacity: 0; width: 0; height: 0; }
     .sw .knob { position: absolute; inset: 0; background: rgba(120,120,128,0.3); border-radius: 999px; transition: background 0.18s ease; }
@@ -144,6 +175,7 @@
         devices: "Devices", noDevices: "No devices yet. Run a scan to discover them.",
         managed: "Managed devices", noManaged: "No devices are being managed yet.",
         blocked: "blocked", paused: "paused", filtered: "filtered",
+        protected: "protected", host: "host", gatewayDevice: "gateway",
         block: "Block", release: "Release", remove: "Remove", full: "Full speed",
         filter: "Filter", apply: "Apply", blockQuic: "Block QUIC", blockVpn: "Block VPN ports",
         manage: "Manage", management: "Management", done: "Done",
@@ -153,6 +185,26 @@
         noRules: "No custom rules yet.", selectDevicesFirst: "Select one or more devices on the left.",
         blockDot: "Block encrypted DNS (DoT/DoQ)", stripEch: "Strip ECH", canary: "Firefox DoH canary",
         quicAuto: "QUIC is blocked automatically so filtering can take effect.",
+        profiles: "Profiles", explain: "Explain", checkDomain: "Check domain", allowed: "Allowed",
+        blockedBy: "Blocked by", allowedBy: "Allowed by", noMatch: "No matching rule",
+        pendingPacks: "Some enabled packs are still loading.",
+        domainExamples: "Domains", showDomains: "Show domains", hideDomains: "Hide domains",
+        moreDomains: "more", noPackDomains: "No domains loaded yet.",
+        duration: "Duration", untilStopped: "Until stopped", min15: "15 min", hour1: "1 hour",
+        hour4: "4 hours", until: "until",
+        policyJson: "Policy JSON", exportPolicy: "Export", importPolicy: "Import",
+        importInvalid: "Invalid policy JSON",
+        undo: "restore available", restorePolicy: "Restore previous policy",
+        diagnostics: "Diagnostics", refresh: "Refresh", closeDiagnostics: "Hide",
+        received: "Received", forwarded: "Forwarded", dropped: "Dropped", shaped: "Shaped",
+        replies: "Replies", rewrites: "Rewrites", sendErrors: "Send errors",
+        relayDevices: "Relay devices", recentEvents: "Recent relay events", noEvents: "No relay events yet.",
+        safety: "Safety check", ready: "Ready", attention: "Needs attention",
+        impactPreview: "Impact preview", previewBlock: "Preview block", previewRelease: "Preview release",
+        applyPreview: "Apply", allowedDevices: "allowed", protectedDevices: "protected",
+        unknownDevices: "unknown", unavailableDevices: "unavailable", tooManyTargets: "Too many targets",
+        restoreDevices: "restore", startSession: "starts session",
+        stopSession: "stops session",
       },
       tr: {
         consentTitle: "Devam etmeden önce",
@@ -164,6 +216,7 @@
         devices: "Cihazlar", noDevices: "Henüz cihaz yok. Keşfetmek için tarama yap.",
         managed: "Yönetilen cihazlar", noManaged: "Henüz yönetilen cihaz yok.",
         blocked: "engelli", paused: "duraklatıldı", filtered: "filtreli",
+        protected: "korumalı", host: "ana cihaz", gatewayDevice: "ağ geçidi",
         block: "Engelle", release: "Bırak", remove: "Kaldır", full: "Tam hız",
         filter: "Filtre", apply: "Uygula", blockQuic: "QUIC engelle", blockVpn: "VPN portları engelle",
         manage: "Yönet", management: "Yönetim", done: "Bitti",
@@ -173,6 +226,26 @@
         noRules: "Henüz özel kural yok.", selectDevicesFirst: "Soldan bir veya daha fazla cihaz seç.",
         blockDot: "Şifreli DNS engelle (DoT/DoQ)", stripEch: "ECH'yi sıyır", canary: "Firefox DoH canary",
         quicAuto: "Filtrelemenin işe yaraması için QUIC otomatik engellenir.",
+        profiles: "Profiller", explain: "Açıkla", checkDomain: "Alan adını kontrol et", allowed: "İzinli",
+        blockedBy: "Engelleyen", allowedBy: "İzin veren", noMatch: "Eşleşen kural yok",
+        pendingPacks: "Bazı etkin listeler hâlâ yükleniyor.",
+        domainExamples: "Alan adları", showDomains: "Alan adlarını göster", hideDomains: "Alan adlarını gizle",
+        moreDomains: "daha", noPackDomains: "Liste henüz yüklenmedi.",
+        duration: "Süre", untilStopped: "Durdurulana kadar", min15: "15 dk", hour1: "1 saat",
+        hour4: "4 saat", until: "bitiş",
+        policyJson: "Politika JSON", exportPolicy: "Dışa aktar", importPolicy: "İçe aktar",
+        importInvalid: "Geçersiz politika JSON",
+        undo: "geri yüklenebilir", restorePolicy: "Önceki politikayı geri yükle",
+        diagnostics: "Tanılama", refresh: "Yenile", closeDiagnostics: "Gizle",
+        received: "Alınan", forwarded: "İletilen", dropped: "Düşen", shaped: "Şekillenen",
+        replies: "Yanıtlar", rewrites: "Yazımlar", sendErrors: "Gönderim hataları",
+        relayDevices: "Relay cihazları", recentEvents: "Son relay olayları", noEvents: "Henüz relay olayı yok.",
+        safety: "Güvenlik kontrolü", ready: "Hazır", attention: "Dikkat gerekiyor",
+        impactPreview: "Etki önizleme", previewBlock: "Engellemeyi önizle", previewRelease: "Bırakmayı önizle",
+        applyPreview: "Uygula", allowedDevices: "uygulanabilir", protectedDevices: "korumalı",
+        unknownDevices: "bilinmeyen", unavailableDevices: "uygun değil", tooManyTargets: "Çok fazla hedef",
+        restoreDevices: "geri yükleme", startSession: "oturum başlatır",
+        stopSession: "oturumu durdurur",
       },
     };
 
@@ -197,15 +270,23 @@
     const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); };
     const mount = (el, node) => { clear(el); el.append(node); };
 
+    const storageGet = (key) => {
+      try { return sessionStorage.getItem(key) || ""; } catch { return ""; }
+    };
+    const storageSet = (key, value) => {
+      try { sessionStorage.setItem(key, value); } catch {}
+    };
+
     const token = (() => {
       const u = new URL(location.href);
-      const tok = u.searchParams.get("token") || new URLSearchParams(u.hash.slice(1)).get("token") || "";
-      history.replaceState(null, "", u.pathname);
+      const tok = u.searchParams.get("token") || new URLSearchParams(u.hash.slice(1)).get("token") || storageGet("lemonet.token");
+      if (tok) storageSet("lemonet.token", tok);
+      if (u.search || u.hash) history.replaceState(null, "", u.pathname);
       return tok;
     })();
 
     const api = (path, opts = {}) =>
-      fetch(path, { ...opts, headers: { "X-Lemonet-Token": token, "Content-Type": "application/json", ...(opts.headers || {}) } });
+      fetch(path, { ...opts, headers: { "X-Lemonet-Token": token, "X-Lemonet-Origin": location.origin, "Content-Type": "application/json", ...(opts.headers || {}) } });
 
     function toast(msg) {
       let el = document.getElementById("toast");
@@ -219,9 +300,14 @@
     // post sends a JSON body and surfaces a server error instead of letting a non-2xx response
     // throw on .json(). Returns the parsed body, or null on error.
     async function post(path, body) {
-      const res = await api(path, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) { toast(await res.text()); return null; }
-      return res.json();
+      try {
+        const res = await api(path, { method: "POST", body: JSON.stringify(body) });
+        if (!res.ok) { toast(await res.text()); return null; }
+        return res.json();
+      } catch (err) {
+        toast(err && err.message ? err.message : "Request failed");
+        return null;
+      }
     }
 
     const app = document.getElementById("app");
@@ -230,10 +316,15 @@
     let state = {};
     let devices = [];
     let packs = [];
+    let profiles = [];
     let es = null;
     let lastTick = "";
     let view = "dashboard";
+    let diagnostics = null;
+    let preflight = null;
+    let deviceDuration = Number(localStorage.getItem("lemonet.durationSeconds") || "0");
     const selected = new Set();
+    const expandedPackDomains = new Set();
 
     // setDevices replaces the working set and resets the live-update cache so the next event
     // re-renders even if its payload matches an earlier one.
@@ -252,8 +343,18 @@
       state = await (await api("/api/state")).json();
       meta.textContent = `${state.interface} · ${state.selfIP} → ${state.gateway}`;
       try { packs = await (await api("/api/packs")).json(); } catch { packs = []; }
+      if (state.consent) await loadProfiles();
+      if (state.consent) await loadPreflight();
       render();
       if (state.consent) listen();
+    }
+
+    async function loadProfiles() {
+      try { profiles = await (await api("/api/profiles")).json(); } catch { profiles = []; }
+    }
+
+    async function loadPreflight() {
+      try { preflight = await (await api("/api/preflight")).json(); } catch { preflight = null; }
     }
 
     function render() {
@@ -266,8 +367,9 @@
       const c1 = h("input", { type: "checkbox" });
       const c2 = h("input", { type: "checkbox" });
       const agree = h("button", { disabled: true, onclick: async () => {
-        await api("/api/consent", { method: "POST" });
-        state.consent = true; render(); listen();
+        const accepted = await post("/api/consent", {});
+        if (!accepted) return;
+        state.consent = true; await loadProfiles(); await loadPreflight(); render(); listen();
       } }, t("agree"));
       const upd = () => { agree.disabled = !(c1.checked && c2.checked); };
       c1.onchange = c2.onchange = upd;
@@ -284,32 +386,144 @@
       const scanBtn = h("button", {}, t("scan"));
       scanBtn.onclick = async () => {
         scanBtn.textContent = t("scanning"); scanBtn.disabled = true;
-        setDevices(await (await api("/api/scan", { method: "POST" })).json());
-        renderList();
-        listen();
-        scanBtn.textContent = t("scan"); scanBtn.disabled = false;
+        try {
+          const next = await post("/api/scan", {});
+          if (next) {
+            setDevices(next);
+            renderList();
+            listen();
+          }
+        } finally {
+          scanBtn.textContent = t("scan"); scanBtn.disabled = false;
+        }
       };
       const stopBtn = h("button", { class: "danger" }, t("stop"));
       stopBtn.onclick = async () => {
-        setDevices(await (await api("/api/stop", { method: "POST" })).json());
+        const next = await post("/api/stop", {});
+        if (!next) return;
+        setDevices(next);
         stopLive();
         renderList();
       };
       const manageBtn = h("button", { class: "ghost" }, t("manage"));
-      manageBtn.onclick = () => { stopLive(); view = "manage"; render(); };
+      manageBtn.onclick = async () => {
+        stopLive();
+        await loadProfiles();
+        try { setDevices(await (await api("/api/devices")).json()); } catch { /* keep last */ }
+        view = "manage";
+        render();
+      };
+      const diagnosticsBtn = h("button", { class: "ghost" }, diagnostics ? t("closeDiagnostics") : t("diagnostics"));
+      diagnosticsBtn.onclick = async () => {
+        if (diagnostics) {
+          diagnostics = null;
+          renderMain();
+          return;
+        }
+        diagnosticsBtn.disabled = true;
+        try { diagnostics = await (await api("/api/diagnostics")).json(); } catch { diagnostics = null; }
+        diagnosticsBtn.disabled = false;
+        renderMain();
+      };
+      const duration = durationSelect();
       const managedList = h("div", { id: "managed-list" });
       const allList = h("div", { id: "all-list" });
-      mount(app, h("div", {},
+      const children = [];
+      if (preflight) children.push(preflightCard(preflight));
+      if (diagnostics) children.push(diagnosticsCard(diagnostics));
+      children.push(
         h("div", { class: "card" },
           h("div", { class: "row" }, h("strong", { class: "grow" }, t("managed"))),
           managedList,
         ),
         h("div", { class: "card" },
-          h("div", { class: "row" }, h("strong", { class: "grow" }, t("devices")), manageBtn, stopBtn, scanBtn),
+          h("div", { class: "row" }, h("strong", { class: "grow" }, t("devices")), duration, diagnosticsBtn, manageBtn, stopBtn, scanBtn),
           allList,
-        ),
-      ));
+        ));
+      mount(app, h("div", {}, ...children));
       renderList();
+    }
+
+    function preflightCard(p) {
+      const refresh = h("button", { class: "ghost small" }, t("refresh"));
+      refresh.onclick = async () => {
+        refresh.disabled = true;
+        await loadPreflight();
+        refresh.disabled = false;
+        renderMain();
+      };
+      const rows = (p.checks || []).map(c =>
+        h("div", { class: "event" },
+          h("span", { class: "status-" + c.status }, c.status),
+          h("span", {}, c.title || c.id),
+          h("small", {}, c.detail || "")));
+      return h("div", { class: "card" },
+        h("div", { class: "row" },
+          h("strong", { class: "grow" }, t("safety")),
+          h("span", { class: "tag " + (p.ready ? "" : "blocked") }, p.ready ? t("ready") : t("attention")),
+          refresh),
+        rows.length ? h("div", { class: "event-list" }, ...rows) : h("div", { class: "hint" }, t("attention")));
+    }
+
+    function metric(label, value) {
+      return h("div", { class: "metric" }, h("strong", {}, fmtCount(value || 0)), h("small", {}, label));
+    }
+
+    function diagnosticsCard(d) {
+      const relay = d.relay || {};
+      const refresh = h("button", { class: "ghost small" }, t("refresh"));
+      const close = h("button", { class: "ghost small" }, t("closeDiagnostics"));
+      close.onclick = () => {
+        diagnostics = null;
+        renderMain();
+      };
+      refresh.onclick = async () => {
+        refresh.disabled = true;
+        try { diagnostics = await (await api("/api/diagnostics")).json(); } catch { diagnostics = null; }
+        refresh.disabled = false;
+        renderMain();
+      };
+      const deviceRows = (relay.devices || []).slice(0, 8).map(x =>
+        h("div", { class: "event" },
+          h("span", {}, x.device),
+          h("span", { class: "tag" }, `${t("forwarded")}: ${fmtCount(x.forwarded)}`),
+          h("span", { class: "tag blocked" }, `${t("dropped")}: ${fmtCount(x.dropped)}`),
+          h("small", {}, `${t("sendErrors")}: ${fmtCount(x.sendErrors)}`)));
+      const events = (relay.recent || []).slice(-8).reverse().map(e =>
+        h("div", { class: "event" },
+          h("span", {}, e.device),
+          h("span", { class: "tag" }, `${e.action}${e.reason ? " · " + e.reason : ""}`),
+          h("span", {}, `${e.direction} ${e.protocol}${e.dstPort ? "/" + e.dstPort : ""}`),
+          h("small", {}, fmtTime(e.time))));
+      return h("div", { class: "card" },
+        h("div", { class: "row" }, h("strong", { class: "grow" }, t("diagnostics")), close, refresh),
+        h("div", { class: "metrics" },
+          metric(t("received"), relay.received),
+          metric(t("forwarded"), relay.forwarded),
+          metric(t("dropped"), relay.dropped),
+          metric(t("shaped"), relay.shaped),
+          metric(t("replies"), relay.replies),
+          metric(t("rewrites"), relay.rewrites),
+          metric(t("sendErrors"), relay.sendErrors)),
+        h("h3", {}, t("relayDevices")),
+        deviceRows.length ? h("div", { class: "event-list" }, ...deviceRows) : h("div", { class: "hint" }, t("noEvents")),
+        h("h3", { class: "section-title-gap" }, t("recentEvents")),
+        events.length ? h("div", { class: "event-list" }, ...events) : h("div", { class: "hint" }, t("noEvents")));
+    }
+
+    function durationSelect() {
+      const sel = h("select", { class: "duration", title: t("duration") },
+        h("option", { value: "0" }, t("untilStopped")),
+        h("option", { value: "900" }, t("min15")),
+        h("option", { value: "3600" }, t("hour1")),
+        h("option", { value: "14400" }, t("hour4")),
+      );
+      sel.value = String(deviceDuration);
+      sel.onchange = () => {
+        deviceDuration = Number(sel.value);
+        localStorage.setItem("lemonet.durationSeconds", String(deviceDuration));
+      };
+      return sel;
     }
 
     function isManaged(d) {
@@ -319,6 +533,20 @@
     function packName(id) {
       const p = packs.find(p => p.id === id);
       return p ? p.name : id;
+    }
+
+    function protectionLabel(d) {
+      if (!d.protected) return "";
+      if (d.protectedReason === "host") return t("host");
+      if (d.protectedReason === "gateway") return t("gatewayDevice");
+      return t("protected");
+    }
+
+    function deviceAddressLine(d, includeVendor = true) {
+      const parts = [d.ip, d.mac];
+      if ((d.ipv6 || []).length) parts.push(`IPv6 ${d.ipv6[0]}${d.ipv6.length > 1 ? " +" + (d.ipv6.length - 1) : ""}`);
+      if (includeVendor && d.vendor) parts.push(d.vendor);
+      return parts.join(" · ");
     }
 
     function renderList() {
@@ -344,18 +572,24 @@
       if (d.blocked) tags.push(h("span", { class: "tag blocked" }, t("blocked")));
       if (d.paused) tags.push(h("span", { class: "tag" }, t("paused")));
       if (d.upKbps || d.downKbps) tags.push(h("span", { class: "tag" }, `${d.downKbps || "∞"}↓ / ${d.upKbps || "∞"}↑`));
+      if (d.expiresAt) tags.push(h("span", { class: "tag" }, `${t("until")} ${fmtTime(d.expiresAt)}`));
+      if (d.hasUndo) tags.push(h("span", { class: "tag" }, t("undo")));
       if (d.filtered) {
         const names = (d.packs || []).map(packName).join(", ");
         tags.push(h("span", { class: "tag" }, names ? `${t("filtered")}: ${names}` : t("filtered")));
       }
+      if (d.protected) tags.push(h("span", { class: "tag kind" }, `${t("protected")}: ${protectionLabel(d)}`));
       const remove = h("button", { class: "small danger" }, t("remove"));
-      remove.onclick = async () => { setDevices(await act(d.ip, "release")); renderList(); };
+      remove.onclick = async () => {
+        const next = await act(d.ip, "release");
+        if (next) { setDevices(next); renderList(); }
+      };
       return h("div", { class: "item" },
         h("div", { class: "device" },
           h("span", { class: "dot " + (d.blocked ? "off" : "") }),
           h("div", { class: "grow" },
             h("div", { class: "name" }, d.hostname || d.vendor || d.ip, ...tags),
-            h("div", { class: "sub" }, `${d.ip} · ${d.mac}`),
+            h("div", { class: "sub" }, deviceAddressLine(d, false)),
           ),
           remove,
         ),
@@ -365,9 +599,12 @@
     function deviceRow(d) {
       const tags = [];
       if (d.kind) tags.push(h("span", { class: "tag kind" }, d.kind));
+      if (d.protected) tags.push(h("span", { class: "tag kind" }, `${t("protected")}: ${protectionLabel(d)}`));
       if (d.blocked) tags.push(h("span", { class: "tag blocked" }, t("blocked")));
       else if (d.paused) tags.push(h("span", { class: "tag" }, t("paused")));
       else if (d.upKbps || d.downKbps) tags.push(h("span", { class: "tag" }, `${d.downKbps || "∞"}↓ / ${d.upKbps || "∞"}↑`));
+      if (d.expiresAt) tags.push(h("span", { class: "tag" }, `${t("until")} ${fmtTime(d.expiresAt)}`));
+      if (d.hasUndo) tags.push(h("span", { class: "tag" }, t("undo")));
 
       const speed = h("select", { class: "speed" },
         h("option", { value: "0" }, t("full")),
@@ -376,23 +613,26 @@
         h("option", { value: "5120" }, "5 Mbps"),
       );
       speed.value = String(d.downKbps || 0);
-      speed.onchange = async () => {
-        const kbps = parseInt(speed.value, 10);
-        setDevices(await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps }));
-        renderList();
-      };
+      speed.disabled = !!d.protected;
+	    speed.onchange = async () => {
+	      const kbps = parseInt(speed.value, 10);
+	      const next = await act(d.ip, "throttle", { upKbps: kbps, downKbps: kbps, durationSeconds: kbps > 0 ? deviceDuration : 0 });
+	      if (next) { setDevices(next); renderList(); } else { renderList(); }
+	    };
 
       const toggle = h("button", { class: "small " + (d.blocked ? "" : "danger") }, d.blocked ? t("release") : t("block"));
+      toggle.disabled = !!d.protected;
       toggle.onclick = async () => {
-        setDevices(await act(d.ip, d.blocked ? "release" : "block"));
-        renderList();
+        if (d.protected) return;
+        const next = await act(d.ip, d.blocked ? "release" : "block", { durationSeconds: d.blocked ? 0 : deviceDuration });
+        if (next) { setDevices(next); renderList(); }
       };
 
       const line = h("div", { class: "device" },
         h("span", { class: "dot " + (d.blocked ? "off" : "") }),
         h("div", { class: "grow" },
           h("div", { class: "name" }, d.hostname || d.vendor || d.ip, ...tags),
-          h("div", { class: "sub" }, `${d.ip} · ${d.mac}${d.vendor ? " · " + d.vendor : ""}`),
+          h("div", { class: "sub" }, deviceAddressLine(d)),
         ),
         speed,
         toggle,
@@ -401,8 +641,13 @@
     }
 
     async function act(ip, action, extra = {}) {
-      const r = await api("/api/device", { method: "POST", body: JSON.stringify({ ip, action, ...extra }) });
-      return r.json();
+      return post("/api/device", { ip, action, ...extra });
+    }
+
+    function fmtTime(value) {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
 
     function switchEl(checked, onchange) {
@@ -417,19 +662,21 @@
 
       const rail = h("div", { class: "manage-devices" });
       const selAll = h("button", { class: "ghost small" }, t("selectAll"));
-      selAll.onclick = () => { devices.forEach(d => selected.add(d.ip)); render(); };
+      selAll.onclick = () => { devices.filter(d => !d.protected).forEach(d => selected.add(d.ip)); render(); };
       const clr = h("button", { class: "ghost small" }, t("clearSel"));
       clr.onclick = () => { selected.clear(); render(); };
-      rail.append(h("div", { class: "row", style: "margin-bottom:6px" },
+      rail.append(h("div", { class: "row row-gap-small" },
         h("strong", { class: "grow" }, t("devices")), selAll, clr));
       devices.forEach(d => {
         const cb = h("input", { type: "checkbox" });
         cb.checked = selected.has(d.ip);
+        cb.disabled = !!d.protected;
         const row = h("div", { class: "selrow" + (selected.has(d.ip) ? " sel" : "") }, cb,
           h("div", { class: "grow" },
-            h("div", { class: "name" }, d.hostname || d.vendor || d.ip),
-            h("div", { class: "sub" }, d.ip)));
+            h("div", { class: "name" }, d.hostname || d.vendor || d.ip, d.protected ? h("span", { class: "tag kind" }, protectionLabel(d)) : null),
+            h("div", { class: "sub" }, deviceAddressLine(d, false))));
         row.onclick = () => {
+          if (d.protected) return;
           if (selected.has(d.ip)) selected.delete(d.ip); else selected.add(d.ip);
           render();
         };
@@ -440,16 +687,91 @@
       if (sel.length === 0) {
         work.append(h("div", { class: "hint" }, t("selectDevicesFirst")));
       } else {
-        work.append(rulesSection(sel), categoriesSection(sel), dnsSection(sel));
+        work.append(actionPreviewSection(sel), undoSection(sel), profileSection(sel), rulesSection(sel), policyJsonSection(sel), categoriesSection(sel), dnsSection(sel));
       }
 
       const done = h("button", {}, t("done"));
       done.onclick = () => { view = "dashboard"; render(); listen(); };
       const title = t("management") + (sel.length ? " · " + sel.length : "");
       mount(app, h("div", {},
-        h("div", { class: "row", style: "margin-bottom:16px" }, h("strong", { class: "grow" }, title), done),
+        h("div", { class: "row row-gap-large" }, h("strong", { class: "grow" }, title), done),
         h("div", { class: "card" }, h("div", { class: "manage" }, rail, work)),
       ));
+    }
+
+    function actionPreviewSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const result = h("div", { class: "decision" });
+      const preview = async (action) => {
+        const p = await post("/api/devices/action/preview", { ips, action });
+        if (!p) return;
+        clear(result);
+        result.append(previewSummary(p, async () => {
+          const allowed = (p.devices || []).filter(d => d.status === "allowed").map(d => d.ip);
+          for (const ip of allowed) await act(ip, p.action);
+          try { setDevices(await (await api("/api/devices")).json()); } catch { /* keep last */ }
+          render();
+        }));
+      };
+      const blockBtn = h("button", { class: "ghost" }, t("previewBlock"));
+      const releaseBtn = h("button", { class: "ghost" }, t("previewRelease"));
+      blockBtn.onclick = () => preview("block");
+      releaseBtn.onclick = () => preview("release");
+      return h("div", { class: "section" },
+        h("h3", {}, t("impactPreview")),
+        h("div", { class: "row" }, blockBtn, releaseBtn),
+        result);
+    }
+
+    function previewSummary(p, apply) {
+      const tags = [
+        `${p.allowed || 0} ${t("allowedDevices")}`,
+        `${p.protected || 0} ${t("protectedDevices")}`,
+        `${p.unknown || 0} ${t("unknownDevices")}`,
+      ];
+      if (p.unavailable) tags.push(`${p.unavailable} ${t("unavailableDevices")}`);
+      if (p.reason === "too_many_targets") tags.push(t("tooManyTargets"));
+      if (p.willRestoreDevices) tags.push(`${p.willRestoreDevices} ${t("restoreDevices")}`);
+      if (p.willStartSession) tags.push(t("startSession"));
+      if (p.willStopSession) tags.push(t("stopSession"));
+      const applyBtn = h("button", { class: "small", disabled: !p.allowed }, t("applyPreview"));
+      applyBtn.onclick = apply;
+      return h("div", { class: "event" },
+        h("span", {}, p.action),
+        ...tags.map(x => h("span", { class: "tag" }, x)),
+        applyBtn);
+    }
+
+    function undoSection(sel) {
+      const ips = sel.filter(d => d.hasUndo).map(d => d.ip);
+      const btn = h("button", { class: "ghost", disabled: ips.length === 0 }, `${t("restorePolicy")}${ips.length ? " · " + ips.length : ""}`);
+      btn.onclick = async () => {
+        if (!ips.length) return;
+        btn.disabled = true;
+        const d = await post("/api/device/undo", { ips });
+        btn.disabled = false;
+        if (d) { setDevices(d); render(); }
+      };
+      return h("div", { class: "section" }, btn);
+    }
+
+    function profileSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const cards = profiles.map(p => {
+        const btn = h("button", { class: "profile-card" },
+          h("strong", {}, p.name),
+          h("small", {}, p.description || (p.enabledPacks || []).map(packName).join(", ")));
+        btn.onclick = async () => {
+          btn.disabled = true;
+          const d = await post("/api/profiles/apply", { ips, profileId: p.id });
+          btn.disabled = false;
+          if (d) { setDevices(d); render(); refreshPacks(); }
+        };
+        return btn;
+      });
+      return h("div", { class: "section" },
+        h("h3", {}, t("profiles")),
+        cards.length ? h("div", { class: "profile-grid" }, ...cards) : h("div", { class: "hint" }, t("noRules")));
     }
 
     function rulesSection(sel) {
@@ -488,13 +810,112 @@
         chips.push(h("div", { class: "chip " + r.action }, h("span", {}, r.domain), x));
       }));
       const list = chips.length ? h("div", { class: "rule-list" }, ...chips) : h("div", { class: "hint" }, t("noRules"));
+      const explainInput = h("input", { type: "text", class: "domain", placeholder: "example.com" });
+      const explainResult = h("div", { class: "decision" });
+      const explain = h("button", { class: "ghost" }, t("explain"));
+      explain.onclick = async () => {
+        const domain = explainInput.value.trim();
+        if (!domain) return;
+        explain.disabled = true;
+        const d = await post("/api/rules/explain", { ip: ips[0], domain });
+        explain.disabled = false;
+        if (!d) return;
+        clear(explainResult);
+        explainResult.append(decisionText(d));
+      };
+      explainInput.onkeydown = (e) => { if (e.key === "Enter") explain.click(); };
 
       return h("div", { class: "section" },
         h("h3", {}, t("blockSite")),
         h("div", { class: "row" }, input, seg, add),
-        h("h3", { style: "margin-top:18px" }, t("activeRules")),
+        h("h3", { class: "section-title-gap" }, t("activeRules")),
         list,
+        h("h3", { class: "section-title-gap" }, t("checkDomain")),
+        h("div", { class: "row" }, explainInput, explain),
+        explainResult,
       );
+    }
+
+    function decisionText(d) {
+      const pieces = [];
+      if (d.blocked) {
+        pieces.push(h("strong", {}, t("blockedBy")), " ");
+      } else if (d.source === "custom-allow") {
+        pieces.push(h("strong", {}, t("allowedBy")), " ");
+      } else {
+        pieces.push(h("strong", {}, t("allowed")), " ");
+      }
+      if (d.source === "custom-allow" || d.source === "custom-block") {
+        pieces.push(`${d.rule || d.matchedDomain} (${d.source})`);
+      } else if (d.source === "pack") {
+        pieces.push(`${d.packName || d.packId}: ${d.matchedDomain}`);
+      } else {
+        pieces.push(t("noMatch"));
+      }
+      if ((d.pendingPacks || []).length) pieces.push(" · ", t("pendingPacks"));
+      return h("span", {}, ...pieces);
+    }
+
+    function policyJsonSection(sel) {
+      const ips = sel.map(d => d.ip);
+      const box = h("textarea", { class: "policy-json", spellcheck: "false" });
+      const exportBtn = h("button", { class: "ghost" }, t("exportPolicy"));
+      const importBtn = h("button", {}, t("importPolicy"));
+      exportBtn.onclick = async () => {
+        exportBtn.disabled = true;
+        const policy = await post("/api/policy/export", { ip: ips[0] });
+        exportBtn.disabled = false;
+        if (policy) box.value = JSON.stringify(policy, null, 2);
+      };
+      importBtn.onclick = async () => {
+        let policy;
+        try { policy = JSON.parse(box.value); } catch { toast(t("importInvalid")); return; }
+        importBtn.disabled = true;
+        const d = await post("/api/policy/import", { ips, policy });
+        importBtn.disabled = false;
+        if (d) { setDevices(d); render(); refreshPacks(); }
+      };
+      return h("div", { class: "section" },
+        h("h3", {}, t("policyJson")),
+        box,
+        h("div", { class: "row row-offset-top" }, exportBtn, importBtn));
+    }
+
+    function fmtCount(n) {
+      if (!n) return "0";
+      return n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+    }
+
+    function packDomainPreview(p) {
+      const sample = Array.isArray(p.sampleDomains) ? p.sampleDomains : [];
+      const expanded = expandedPackDomains.has(p.id);
+      const hidden = Math.max(0, (p.count || 0) - sample.length);
+      const total = Math.max(p.count || 0, sample.length);
+      const toggle = h("button", {
+        class: "pack-domain-toggle",
+        type: "button",
+        "aria-expanded": String(expanded),
+        onclick: () => {
+          if (expanded) expandedPackDomains.delete(p.id);
+          else expandedPackDomains.add(p.id);
+          render();
+        },
+      }, `${expanded ? t("hideDomains") : t("showDomains")} (${fmtCount(total)})`);
+      if (!expanded) return h("div", { class: "pack-domain-control" }, toggle);
+      if (!sample.length) return h("div", { class: "pack-domain-control" }, toggle, h("div", { class: "pack-domains" }, t("noPackDomains")));
+      const nodes = [h("span", {}, `${t("domainExamples")}:`)];
+      for (const domain of sample) nodes.push(h("code", {}, domain));
+      if (hidden) nodes.push(h("span", { class: "more" }, `+${fmtCount(hidden)} ${t("moreDomains")}`));
+      return h("div", { class: "pack-domain-control" }, toggle, h("div", { class: "pack-domains" }, ...nodes));
+    }
+
+    // refreshPacks re-fetches catalog metadata (count/loading) and re-renders. While any pack is
+    // still downloading, it polls until the count settles.
+    async function refreshPacks() {
+      try { packs = await (await api("/api/packs")).json(); } catch { /* keep last */ }
+      if (view !== "manage") return; // stop polling once the user leaves the management view
+      render();
+      if (packs.some(p => p.loading)) setTimeout(refreshPacks, 1500);
     }
 
     function categoriesSection(sel) {
@@ -503,10 +924,12 @@
         const allOn = sel.every(d => (d.packs || []).includes(p.id));
         const sw = switchEl(allOn, async (on) => {
           const d = await post("/api/packs/set", { ips, packId: p.id, enabled: on });
-          if (d) { setDevices(d); render(); }
+          if (d) { setDevices(d); render(); refreshPacks(); } else { render(); }
         });
+        const meta = p.loading ? "loading…"
+          : `${fmtCount(p.count)} domains${p.license ? " · " + p.license : ""}${p.attribution ? " · " + p.attribution : ""}`;
         return h("div", { class: "swrow" },
-          h("div", { class: "label" }, p.name, h("small", {}, String(p.count))), sw);
+          h("div", { class: "label" }, p.name, h("small", {}, meta), packDomainPreview(p)), sw);
       });
       return h("div", { class: "section" }, h("h3", {}, t("categories")), ...rows,
         h("div", { class: "hint" }, t("quicAuto")));
@@ -523,10 +946,10 @@
       ];
       const rows = items.map(([key, label]) => {
         const checked = sel.every(d => !!((d.toggles || {})[key]));
-        const sw = switchEl(checked, async (on) => {
-          const d = await post("/api/toggles/set", { ips, key, enabled: on });
-          if (d) { setDevices(d); render(); }
-        });
+	    const sw = switchEl(checked, async (on) => {
+	      const d = await post("/api/toggles/set", { ips, key, enabled: on });
+	      if (d) { setDevices(d); render(); } else { render(); }
+	    });
         return h("div", { class: "swrow" }, h("div", { class: "label" }, label), sw);
       });
       return h("div", { class: "section" }, h("h3", {}, t("dnsNetwork")), ...rows);

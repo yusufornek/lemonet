@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/pkg/browser"
@@ -25,7 +24,7 @@ import (
 	"github.com/yusufornek/lemonet/web"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	iface := flag.String("iface", "", "network interface to use (default: the one facing the gateway)")
@@ -39,7 +38,7 @@ func main() {
 	}
 }
 
-func run(ifaceName, addr string, noBrowser bool) error {
+func run(ifaceName, addr string, noBrowser bool) (err error) {
 	if err := requirePrivilege(); err != nil {
 		return err
 	}
@@ -53,7 +52,7 @@ func run(ifaceName, addr string, noBrowser bool) error {
 	if err != nil {
 		return err
 	}
-	defer ctrl.Close()
+	defer func() { err = mergeCleanupError(err, ctrl.Close) }()
 
 	token, err := newToken()
 	if err != nil {
@@ -61,14 +60,20 @@ func run(ifaceName, addr string, noBrowser bool) error {
 	}
 
 	srv := server.New(token, version, ctrl, web.Dist(), iface.Name, iface.IP.String())
-	httpSrv := &http.Server{Handler: srv.Handler()}
+	httpSrv := &http.Server{
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := listenLoopback(addr)
 	if err != nil {
 		return err
 	}
 
-	url := fmt.Sprintf("http://%s/?token=%s", ln.Addr().String(), token)
+	url := panelURL(ln.Addr().String(), token)
 	fmt.Printf("lemonet %s on %s (interface %s)\n", version, iface.Name, iface.Name)
 	fmt.Printf("Open: %s\n", url)
 
@@ -78,7 +83,7 @@ func run(ifaceName, addr string, noBrowser bool) error {
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sig, shutdownSignals()...)
 	<-sig
 
 	fmt.Println("\nlemonet: restoring network and shutting down")
@@ -86,6 +91,14 @@ func run(ifaceName, addr string, noBrowser bool) error {
 	defer cancel()
 	_ = httpSrv.Shutdown(shutCtx)
 	return nil
+}
+
+func panelURL(addr, token string) string {
+	return fmt.Sprintf("http://%s/#token=%s", addr, token)
+}
+
+func mergeCleanupError(err error, cleanup func() error) error {
+	return errors.Join(err, cleanup())
 }
 
 // pickInterface uses the named interface, or the one whose subnet contains the default gateway.
@@ -115,6 +128,31 @@ func pickInterface(name string) (engine.Interface, error) {
 func requirePrivilege() error {
 	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
 		return errors.New("raw packet access requires root; run with sudo")
+	}
+	return nil
+}
+
+func listenLoopback(addr string) (net.Listener, error) {
+	if err := validateLoopbackAddr(addr); err != nil {
+		return nil, err
+	}
+	return net.Listen("tcp", addr)
+}
+
+func validateLoopbackAddr(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid listen address %q: %w", addr, err)
+	}
+	if host == "" {
+		return errors.New("listen address must be loopback; use 127.0.0.1:0, localhost:0, or [::1]:0")
+	}
+	if host == "localhost" {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("listen address %s is not loopback", host)
 	}
 	return nil
 }

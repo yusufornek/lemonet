@@ -3,6 +3,8 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -17,16 +19,28 @@ type darwinGuard struct {
 	applied        bool
 }
 
+var (
+	readSysctlBoolFunc  = readSysctlBool
+	writeSysctlBoolFunc = writeSysctlBool
+)
+
 func NewSessionGuard() SessionGuard { return &darwinGuard{} }
 
 func (g *darwinGuard) Begin() error {
-	g.prevV4, _ = readSysctlBool(darwinRedirectV4)
-	g.prevV6, _ = readSysctlBool(darwinRedirectV6)
-	g.applied = true
-	if err := writeSysctlBool(darwinRedirectV4, false); err != nil {
+	prevV4, err := readSysctlBoolFunc(darwinRedirectV4)
+	if err != nil {
+		return fmt.Errorf("engine: read %s: %w", darwinRedirectV4, err)
+	}
+	prevV6, err := readSysctlBoolFunc(darwinRedirectV6)
+	if err != nil {
+		return fmt.Errorf("engine: read %s: %w", darwinRedirectV6, err)
+	}
+	if err := writeSysctlBoolFunc(darwinRedirectV4, false); err != nil {
 		return err
 	}
-	_ = writeSysctlBool(darwinRedirectV6, false) // best-effort
+	g.prevV4, g.prevV6 = prevV4, prevV6
+	g.applied = true
+	_ = writeSysctlBoolFunc(darwinRedirectV6, false) // best-effort
 	return nil
 }
 
@@ -35,9 +49,10 @@ func (g *darwinGuard) End() error {
 		return nil
 	}
 	g.applied = false
-	_ = writeSysctlBool(darwinRedirectV4, g.prevV4)
-	_ = writeSysctlBool(darwinRedirectV6, g.prevV6)
-	return nil
+	return errors.Join(
+		writeSysctlBoolFunc(darwinRedirectV4, g.prevV4),
+		writeSysctlBoolFunc(darwinRedirectV6, g.prevV6),
+	)
 }
 
 func readSysctlBool(key string) (bool, error) {
@@ -53,5 +68,15 @@ func writeSysctlBool(key string, v bool) error {
 	if v {
 		val = "1"
 	}
-	return exec.Command("sysctl", "-w", key+"="+val).Run()
+	var arg string
+	switch key {
+	case darwinRedirectV4:
+		arg = darwinRedirectV4 + "=" + val
+	case darwinRedirectV6:
+		arg = darwinRedirectV6 + "=" + val
+	default:
+		return fmt.Errorf("engine: unsupported sysctl key %s", key)
+	}
+	// #nosec G204 -- arg is built from the fixed sysctl allowlist above.
+	return exec.Command("sysctl", "-w", arg).Run()
 }

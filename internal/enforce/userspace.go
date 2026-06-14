@@ -1,6 +1,7 @@
 package enforce
 
 import (
+	"fmt"
 	"net/netip"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 // burstFraction sizes each token bucket at this fraction of one second of throughput. A small
 // burst lets TCP fill the pipe without letting the average rate drift above the configured cap.
 const burstFraction = 0.1
+
+const minBurstBytes = 2048
 
 type policy struct {
 	blocked bool
@@ -49,6 +52,9 @@ func (u *Userspace) Block(ip netip.Addr) error {
 }
 
 func (u *Userspace) Throttle(ip netip.Addr, upKbps, downKbps int) error {
+	if upKbps < 0 || downKbps < 0 {
+		return fmt.Errorf("enforce: throttle rates must be non-negative")
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	p := u.entry(ip)
@@ -92,22 +98,29 @@ func (u *Userspace) ClearAll() error {
 func (u *Userspace) Decide(device netip.Addr, dir engine.Direction, length int) (bool, time.Duration) {
 	u.mu.RLock()
 	p, ok := u.policies[device]
-	u.mu.RUnlock()
 	if !ok {
+		u.mu.RUnlock()
 		return false, 0
 	}
-	if p.blocked || p.paused {
+	blocked, paused := p.blocked, p.paused
+	up, down := p.up, p.down
+	u.mu.RUnlock()
+	if blocked || paused {
 		return true, 0
 	}
 
-	lim := p.up
+	lim := up
 	if dir == engine.Download {
-		lim = p.down
+		lim = down
 	}
 	if lim == nil {
 		return false, 0
 	}
-	return false, lim.ReserveN(time.Now(), length).Delay()
+	res := lim.ReserveN(time.Now(), length)
+	if !res.OK() {
+		return true, 0
+	}
+	return false, res.Delay()
 }
 
 // limiterFor creates or updates a byte-rate limiter for the given kbps. 0 kbps removes the limit.
@@ -117,8 +130,8 @@ func limiterFor(existing *rate.Limiter, kbps int) *rate.Limiter {
 	}
 	bytesPerSec := float64(kbps) * 1000 / 8
 	burst := int(bytesPerSec * burstFraction)
-	if burst < 1500 {
-		burst = 1500 // at least one full-size frame
+	if burst < minBurstBytes {
+		burst = minBurstBytes
 	}
 	if existing == nil {
 		return rate.NewLimiter(rate.Limit(bytesPerSec), burst)

@@ -2,11 +2,19 @@
 // and the matcher that decides whether a domain or flow is blocked.
 package rules
 
-import "strings"
+import (
+	"net/netip"
+	"sort"
+	"strings"
+	"sync"
+)
 
 // DomainSet matches a domain against a set of suffixes. Adding "example.com" matches
 // "example.com" and any subdomain such as "ads.example.com", which is how blocklists are scoped.
+// It is safe for concurrent use: the relay matches against it while a blocklist refresh replaces
+// its contents.
 type DomainSet struct {
+	mu      sync.RWMutex
 	entries map[string]struct{}
 }
 
@@ -16,19 +24,65 @@ func NewDomainSet() *DomainSet {
 
 func (s *DomainSet) Add(domain string) {
 	d := normalize(domain)
-	if d != "" {
-		s.entries[d] = struct{}{}
+	if d == "" {
+		return
 	}
+	s.mu.Lock()
+	s.entries[d] = struct{}{}
+	s.mu.Unlock()
 }
 
-func (s *DomainSet) Len() int { return len(s.entries) }
+// Set atomically replaces all entries with the normalized, de-duplicated domains. Used to load or
+// refresh a pack's list without a lock held during parsing.
+func (s *DomainSet) Set(domains []string) {
+	m := make(map[string]struct{}, len(domains))
+	for _, d := range domains {
+		if n := normalize(d); n != "" {
+			m[n] = struct{}{}
+		}
+	}
+	s.mu.Lock()
+	s.entries = m
+	s.mu.Unlock()
+}
+
+func (s *DomainSet) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.entries)
+}
+
+func (s *DomainSet) List(limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	s.mu.RLock()
+	out := make([]string, 0, len(s.entries))
+	for d := range s.entries {
+		out = append(out, d)
+	}
+	s.mu.RUnlock()
+	sort.Strings(out)
+	if len(out) > limit {
+		return out[:limit]
+	}
+	return out
+}
 
 // Match reports whether domain equals or is a subdomain of any entry.
 func (s *DomainSet) Match(domain string) bool {
+	_, ok := s.MatchEntry(domain)
+	return ok
+}
+
+// MatchEntry returns the matched suffix for domain.
+func (s *DomainSet) MatchEntry(domain string) (string, bool) {
 	d := normalize(domain)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for d != "" {
 		if _, ok := s.entries[d]; ok {
-			return true
+			return d, true
 		}
 		i := strings.IndexByte(d, '.')
 		if i < 0 {
@@ -36,7 +90,7 @@ func (s *DomainSet) Match(domain string) bool {
 		}
 		d = d[i+1:]
 	}
-	return false
+	return "", false
 }
 
 // normalize lower-cases a domain and strips a trailing dot and leading/trailing whitespace so
@@ -62,7 +116,31 @@ func NormalizeDomain(s string) string {
 	if d == "" || strings.HasPrefix(d, ".") || strings.ContainsAny(d, " \t@") || !strings.Contains(d, ".") {
 		return ""
 	}
+	if _, err := netip.ParseAddr(d); err == nil {
+		return ""
+	}
+	if !validDomain(d) {
+		return ""
+	}
 	return d
+}
+
+func validDomain(d string) bool {
+	if len(d) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(d, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 // matchDomain reports whether pattern (a single suffix) matches domain.
