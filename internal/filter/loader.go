@@ -3,6 +3,7 @@ package filter
 import (
 	"bufio"
 	"embed"
+	"fmt"
 	"io"
 	"strings"
 
@@ -14,15 +15,16 @@ var packData embed.FS
 
 // PackInfo describes an available list pack for the UI.
 type PackInfo struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Category    rules.Category `json:"category"`
-	Count       int            `json:"count"`
-	License     string         `json:"license"`
-	Attribution string         `json:"attribution"`
-	SourceURL   string         `json:"sourceUrl"`
-	Loaded      bool           `json:"loaded"`  // domains are in memory and matching
-	Loading     bool           `json:"loading"` // a fetch is in progress
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Category      rules.Category `json:"category"`
+	Count         int            `json:"count"`
+	SampleDomains []string       `json:"sampleDomains,omitempty"`
+	License       string         `json:"license"`
+	Attribution   string         `json:"attribution"`
+	SourceURL     string         `json:"sourceUrl"`
+	Loaded        bool           `json:"loaded"`  // domains are in memory and matching
+	Loading       bool           `json:"loading"` // a fetch is in progress
 }
 
 const builtinLicense = "Built-in (lemonet)"
@@ -39,24 +41,21 @@ type packDef struct {
 	url         string // remote list URL, "" if built-in only
 }
 
-// packDefs is the catalog. Remote URLs point at single raw text files in plain or hosts format.
-// Licenses: Hagezi = MIT, UT1 (Université Toulouse Capitole) = CC BY-SA (attribution required).
-// All remote URLs were verified to return a single plain/hosts-format list of a reasonable size.
-const ut1 = "https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/"
-
 var packDefs = []packDef{
 	{id: "ads", name: "Ads & Trackers", category: rules.CategoryAds, license: "MIT", attribution: "HaGeZi", embedFile: "data/ads.txt", url: "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/light.txt"},
 	{id: "social", name: "Social Media", category: rules.CategorySocial, license: builtinLicense, embedFile: "data/social.txt"},
-	{id: "gambling", name: "Gambling", category: rules.CategoryGambling, license: "CC BY-SA", attribution: "Université Toulouse Capitole (UT1)", url: ut1 + "gambling/domains"},
-	{id: "vpn", name: "VPN & Proxy", category: rules.CategoryVPN, license: "CC BY-SA", attribution: "Université Toulouse Capitole (UT1)", url: ut1 + "vpn/domains"},
-	{id: "gaming", name: "Gaming", category: rules.CategoryGames, license: "CC BY-SA", attribution: "Université Toulouse Capitole (UT1)", url: ut1 + "games/domains"},
-	{id: "malware", name: "Malware & Phishing", category: rules.CategoryMalware, license: "CC BY-SA", attribution: "Université Toulouse Capitole (UT1)", url: ut1 + "malware/domains"},
+	{id: "streaming", name: "Streaming Video", category: rules.CategoryStreaming, license: builtinLicense, embedFile: "data/streaming.txt"},
+	{id: "encrypted-dns", name: "Encrypted DNS", category: rules.CategoryEncryptedDNS, license: builtinLicense, embedFile: "data/encrypted_dns.txt"},
+	{id: "vpn", name: "VPN & Proxy", category: rules.CategoryVPN, license: builtinLicense, embedFile: "data/vpn.txt"},
+	{id: "gaming", name: "Gaming", category: rules.CategoryGames, license: builtinLicense, embedFile: "data/gaming.txt"},
+	{id: "gambling", name: "Gambling", category: rules.CategoryGambling, license: builtinLicense, embedFile: "data/gambling.txt"},
+	{id: "malware", name: "Malware & Phishing", category: rules.CategoryMalware, license: builtinLicense, embedFile: "data/malware.txt"},
 }
 
 // parseList extracts domains from a blocklist in plain ("example.com") or hosts ("0.0.0.0 host")
 // format, skipping blank and comment lines. Normalization and de-duplication happen in
 // DomainSet.Set. A large buffer tolerates unusually long lines.
-func parseList(r io.Reader) []string {
+func parseList(r io.Reader) ([]string, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	var out []string
@@ -65,8 +64,17 @@ func parseList(r io.Reader) []string {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
 			continue
 		}
+		if cut := strings.IndexByte(line, '#'); cut >= 0 {
+			line = strings.TrimSpace(line[:cut])
+			if line == "" {
+				continue
+			}
+		}
 		fields := strings.Fields(line)
 		out = append(out, fields[len(fields)-1])
 	}
-	return out
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("filter: parse list: %w", err)
+	}
+	return out, nil
 }

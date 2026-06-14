@@ -9,6 +9,7 @@ import (
 
 var (
 	allNodesIP    = net.ParseIP("ff02::1")
+	allNodesMAC   = net.HardwareAddr{0x33, 0x33, 0x00, 0x00, 0x00, 0x01}
 	allRoutersIP  = net.ParseIP("ff02::2")
 	allRoutersMAC = net.HardwareAddr{0x33, 0x33, 0x00, 0x00, 0x00, 0x02}
 )
@@ -54,6 +55,17 @@ func BuildRouterSolicitation(srcMAC net.HardwareAddr, srcIP net.IP) ([]byte, err
 		Type: layers.ICMPv6OptSourceAddress, Data: srcMAC,
 	}}}
 	return serializeICMPv6(eth, ip6, icmp, rs)
+}
+
+func BuildAllNodesEchoRequest(srcMAC net.HardwareAddr, srcIP net.IP) ([]byte, error) {
+	if len(srcMAC) != 6 || srcIP == nil {
+		return nil, errBadAddr
+	}
+	eth := &layers.Ethernet{SrcMAC: srcMAC, DstMAC: allNodesMAC, EthernetType: layers.EthernetTypeIPv6}
+	ip6 := &layers.IPv6{Version: 6, SrcIP: srcIP, DstIP: allNodesIP, HopLimit: 255, NextHeader: layers.IPProtocolICMPv6}
+	icmp := &layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0)}
+	echo := &layers.ICMPv6Echo{Identifier: 0x4c4e, SeqNumber: 1}
+	return serializeICMPv6(eth, ip6, icmp, echo)
 }
 
 // BuildNeighborAdvertisement crafts an unsolicited NA telling the recipient that target (the

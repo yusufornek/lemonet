@@ -14,12 +14,24 @@ type linuxGuard struct {
 	applied bool
 }
 
+var (
+	readProcBoolFunc  = readProcBool
+	writeProcBoolFunc = writeProcBool
+)
+
 func NewSessionGuard() SessionGuard { return &linuxGuard{} }
 
 func (g *linuxGuard) Begin() error {
-	g.prev, _ = readProcBool(linuxSendRedirects)
+	prev, err := readProcBoolFunc(linuxSendRedirects)
+	if err != nil {
+		return err
+	}
+	if err := writeProcBoolFunc(linuxSendRedirects, false); err != nil {
+		return err
+	}
+	g.prev = prev
 	g.applied = true
-	return writeProcBool(linuxSendRedirects, false)
+	return nil
 }
 
 func (g *linuxGuard) End() error {
@@ -27,7 +39,7 @@ func (g *linuxGuard) End() error {
 		return nil
 	}
 	g.applied = false
-	return writeProcBool(linuxSendRedirects, g.prev)
+	return writeProcBoolFunc(linuxSendRedirects, g.prev)
 }
 
 func readProcBool(path string) (bool, error) {

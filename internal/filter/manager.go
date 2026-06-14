@@ -28,6 +28,8 @@ type packState struct {
 	remoteLoaded bool
 }
 
+const packSampleLimit = 96
+
 // NewManager builds the engine, registers every pack in the catalog, loads embedded and cached
 // lists, and returns a ready Manager.
 func NewManager() *Manager {
@@ -53,25 +55,36 @@ func NewManager() *Manager {
 
 		if d.embedFile != "" {
 			if f, err := packData.Open(d.embedFile); err == nil {
-				pack.Domains().Set(parseList(f))
+				if domains, err := parseList(f); err == nil {
+					pack.Domains().Set(domains)
+				}
 				_ = f.Close()
-				st.info.Count = pack.Domains().Len()
-				st.info.Loaded = st.info.Count > 0
+				updatePackInfo(st, pack)
 			}
 		}
 		// A cached remote list (from a previous run) supersedes the embedded fallback.
 		if d.url != "" && m.dir != "" {
 			if f, err := os.Open(m.listPath(d.id)); err == nil {
-				pack.Domains().Set(parseList(f))
+				domains, parseErr := parseList(f)
 				_ = f.Close()
-				st.info.Count = pack.Domains().Len()
-				st.info.Loaded = st.info.Count > 0
-				st.remoteLoaded = st.info.Count > 0
+				if parseErr == nil {
+					pack.Domains().Set(domains)
+					st.remoteLoaded = len(domains) > 0
+				} else {
+					removeListCache(m.listPath(d.id))
+				}
+				updatePackInfo(st, pack)
 			}
 		}
 	}
 	m.filter = New(m.engine)
 	return m
+}
+
+func updatePackInfo(st *packState, pack *rules.ListPack) {
+	st.info.Count = pack.Domains().Len()
+	st.info.SampleDomains = pack.Domains().List(packSampleLimit)
+	st.info.Loaded = st.info.Count > 0
 }
 
 // listPath returns the cache file for a pack. filepath.Base neutralizes any path traversal in id
@@ -87,9 +100,38 @@ func (m *Manager) Packs() []PackInfo {
 	defer m.mu.Unlock()
 	out := make([]PackInfo, 0, len(packDefs))
 	for _, d := range packDefs {
-		out = append(out, m.states[d.id].info)
+		info := m.states[d.id].info
+		info.SampleDomains = append([]string(nil), info.SampleDomains...)
+		out = append(out, info)
 	}
 	return out
+}
+
+func (m *Manager) HasPack(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.states[id]
+	return ok
+}
+
+func (m *Manager) Explain(pol rules.DevicePolicy, domain string) rules.Decision {
+	decision := m.engine.Explain(pol, domain)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if decision.PackID != "" {
+		if st, ok := m.states[decision.PackID]; ok {
+			decision.PackLoaded = st.info.Loaded
+			decision.PackLoading = st.info.Loading
+		}
+	}
+	for _, id := range pol.EnabledPacks {
+		st, ok := m.states[id]
+		if !ok || st.info.Loaded {
+			continue
+		}
+		decision.PendingPacks = append(decision.PendingPacks, id)
+	}
+	return decision
 }
 
 // EnsureLoaded downloads and applies a remote pack's list the first time it is needed. It is safe
@@ -165,17 +207,25 @@ func (m *Manager) loadRemote(st *packState) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	pack, ok := m.engine.Pack(st.def.id)
 	if !ok {
+		_ = f.Close()
 		return fmt.Errorf("filter: pack %s missing from engine", st.def.id)
 	}
-	pack.Domains().Set(parseList(f))
+	domains, err := parseList(f)
+	closeErr := f.Close()
+	if err != nil {
+		removeListCache(path)
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	pack.Domains().Set(domains)
 
 	m.mu.Lock()
-	st.info.Count = pack.Domains().Len()
-	st.info.Loaded = st.info.Count > 0
+	updatePackInfo(st, pack)
 	st.remoteLoaded = st.info.Count > 0
 	m.mu.Unlock()
 	return nil

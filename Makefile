@@ -1,9 +1,11 @@
 .PHONY: build web test lint fmt clean run install uninstall
 
 PREFIX ?= /usr/local
+GO ?= $(shell if [ -x /opt/homebrew/bin/go ]; then printf /opt/homebrew/bin/go; else command -v go; fi)
+GOFLAGS ?= -buildvcs=false
 
 build: web
-	go build -o lemonet ./cmd/lemonet
+	$(GO) build $(GOFLAGS) -o lemonet ./cmd/lemonet
 
 install: build
 	install -m 0755 lemonet $(PREFIX)/bin/lemonet
@@ -12,13 +14,13 @@ uninstall:
 	rm -f $(PREFIX)/bin/lemonet
 
 web:
-	cd web && npm install && npm run build
+	@if [ -f web/package.json ]; then cd web && npm install && npm run build; else test -f web/dist/index.html; fi
 
 test:
-	go test ./...
+	$(GO) test $(GOFLAGS) ./...
 
 lint:
-	go vet ./...
+	$(GO) vet ./...
 	golangci-lint run
 	gofmt -l .
 
@@ -30,4 +32,4 @@ run: build
 
 clean:
 	rm -f lemonet lemonet.exe
-	rm -rf web/dist
+	@if [ -f web/package.json ]; then rm -rf web/dist; fi

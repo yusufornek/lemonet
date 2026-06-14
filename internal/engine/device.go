@@ -12,6 +12,7 @@ import (
 // best-effort and filled from whatever discovery signal resolved them.
 type Device struct {
 	IP       net.IP
+	IPv6     []net.IP
 	MAC      net.HardwareAddr
 	Vendor   string
 	Hostname string
@@ -24,7 +25,7 @@ type Device struct {
 type Table struct {
 	mu      sync.RWMutex
 	devices map[string]*Device
-	v6ByMAC map[string][]net.IP // device MAC -> learned global IPv6 addresses
+	v6ByMAC map[string][]net.IP // device MAC -> learned IPv6 addresses
 	v6Owner map[string]string   // IPv6 string -> device MAC
 }
 
@@ -36,23 +37,17 @@ func NewTable() *Table {
 	}
 }
 
-// RecordV6 associates a global IPv6 address with a device (by MAC), learned by observing the
-// device's traffic. It lets the relay route IPv6 download traffic and the spoofer poison the
-// gateway for that address. Non-global addresses are ignored.
-func (t *Table) RecordV6(mac net.HardwareAddr, ip net.IP) {
-	v6 := ip.To16()
-	if v6 == nil || v6.To4() != nil || !v6.IsGlobalUnicast() {
-		return
-	}
-	key := mac.String()
-	id := v6.String()
+// RecordV6 associates a usable unicast IPv6 address with a device (by MAC), learned by observing
+// the device's traffic. It lets the relay route IPv6 download traffic and the spoofer poison the
+// gateway for that address. Multicast, loopback, and unspecified addresses are ignored.
+func (t *Table) RecordV6(mac net.HardwareAddr, ip net.IP) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if _, seen := t.v6Owner[id]; seen {
-		return
+	added := t.recordOneV6Locked(mac, ip)
+	if d, ok := t.devices[mac.String()]; ok {
+		d.IPv6 = cloneIPs(t.v6ByMAC[mac.String()])
 	}
-	t.v6Owner[id] = key
-	t.v6ByMAC[key] = append(t.v6ByMAC[key], append(net.IP(nil), v6...))
+	t.mu.Unlock()
+	return added
 }
 
 // DeviceByV6 returns the device that owns an IPv6 address.
@@ -67,14 +62,20 @@ func (t *Table) DeviceByV6(ip net.IP) (Device, bool) {
 	if !ok {
 		return Device{}, false
 	}
-	return *d, true
+	cp := *d
+	cp.IPv6 = cloneIPs(t.v6ByMAC[mac])
+	return cp, true
 }
 
-// V6Addrs returns the global IPv6 addresses learned for a device.
+// V6Addrs returns the IPv6 addresses learned for a device.
 func (t *Table) V6Addrs(mac net.HardwareAddr) []net.IP {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return append([]net.IP(nil), t.v6ByMAC[mac.String()]...)
+	return cloneIPs(t.v6ByMAC[mac.String()])
+}
+
+func usableIPv6Unicast(ip net.IP) bool {
+	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast()
 }
 
 // Upsert merges d into the table. Non-empty fields on d overwrite existing values; empty
@@ -82,12 +83,14 @@ func (t *Table) V6Addrs(mac net.HardwareAddr) []net.IP {
 func (t *Table) Upsert(d Device) {
 	key := d.MAC.String()
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	cur, ok := t.devices[key]
 	if !ok {
 		cp := d
 		t.devices[key] = &cp
+		t.recordV6Locked(d.MAC, d.IPv6)
+		cp.IPv6 = cloneIPs(t.v6ByMAC[key])
+		t.mu.Unlock()
 		return
 	}
 	if d.IP != nil {
@@ -105,6 +108,9 @@ func (t *Table) Upsert(d Device) {
 	if !d.LastSeen.IsZero() {
 		cur.LastSeen = d.LastSeen
 	}
+	t.recordV6Locked(d.MAC, d.IPv6)
+	cur.IPv6 = cloneIPs(t.v6ByMAC[key])
+	t.mu.Unlock()
 }
 
 func (t *Table) List() []Device {
@@ -112,8 +118,10 @@ func (t *Table) List() []Device {
 	defer t.mu.RUnlock()
 
 	out := make([]Device, 0, len(t.devices))
-	for _, d := range t.devices {
-		out = append(out, *d)
+	for key, d := range t.devices {
+		cp := *d
+		cp.IPv6 = cloneIPs(t.v6ByMAC[key])
+		out = append(out, cp)
 	}
 	return out
 }
@@ -126,7 +134,9 @@ func (t *Table) Get(mac net.HardwareAddr) (Device, bool) {
 	if !ok {
 		return Device{}, false
 	}
-	return *d, true
+	cp := *d
+	cp.IPv6 = cloneIPs(t.v6ByMAC[mac.String()])
+	return cp, true
 }
 
 // MergeByIP enriches an already-discovered device (matched by IP) with name, kind, or vendor
@@ -156,10 +166,48 @@ func (t *Table) GetByIP(ip net.IP) (Device, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	for _, d := range t.devices {
+	for key, d := range t.devices {
 		if d.IP.Equal(ip) {
-			return *d, true
+			cp := *d
+			cp.IPv6 = cloneIPs(t.v6ByMAC[key])
+			return cp, true
 		}
 	}
 	return Device{}, false
+}
+
+func (t *Table) recordV6Locked(mac net.HardwareAddr, ips []net.IP) bool {
+	added := false
+	for _, ip := range ips {
+		added = t.recordOneV6Locked(mac, ip) || added
+	}
+	return added
+}
+
+func (t *Table) recordOneV6Locked(mac net.HardwareAddr, ip net.IP) bool {
+	v6 := ip.To16()
+	if v6 == nil || v6.To4() != nil || !usableIPv6Unicast(v6) {
+		return false
+	}
+	key := mac.String()
+	id := v6.String()
+	if _, seen := t.v6Owner[id]; seen {
+		return false
+	}
+	t.v6Owner[id] = key
+	t.v6ByMAC[key] = append(t.v6ByMAC[key], append(net.IP(nil), v6...))
+	return true
+}
+
+func cloneIPs(ips []net.IP) []net.IP {
+	if len(ips) == 0 {
+		return nil
+	}
+	out := make([]net.IP, 0, len(ips))
+	for _, ip := range ips {
+		if ip != nil {
+			out = append(out, append(net.IP(nil), ip...))
+		}
+	}
+	return out
 }

@@ -63,6 +63,8 @@ This approach has real limits, and lemonet does not pretend otherwise:
   Inspection, static ARP entries, or client isolation will defeat it.
 - Encrypted bypass channels reduce filtering reliability. Obfuscated VPNs and full peer-to-peer
   game traffic are not reliably blockable.
+- ECH handling only applies to fresh HTTPS/SVCB answers seen over plaintext DNS on the relay path.
+  It does not cover cached ECH keys, DoH, DoT, DoQ, or client-side DNS validation.
 - IPv6 control is best-effort and requires an IPv6 router on the LAN. Where there is none, only
   IPv4 is controlled.
 
@@ -70,7 +72,7 @@ This approach has real limits, and lemonet does not pretend otherwise:
 
 - **Run:** administrator/root privileges (raw packet access), and a packet capture backend —
   libpcap on Linux/macOS (usually preinstalled), or [Npcap](https://npcap.com/) on Windows.
-- **Build:** Go 1.25+. No Node toolchain is needed; the web panel ships pre-built and embedded.
+- **Build:** Go 1.26.2+. No Node toolchain is needed; the web panel ships pre-built and embedded.
 
 ## Build and run
 

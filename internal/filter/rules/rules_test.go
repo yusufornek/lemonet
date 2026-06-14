@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -39,9 +40,27 @@ func TestDomainSetSuffixMatch(t *testing.T) {
 	}
 }
 
+func TestDomainSetListSortedLimitedCopy(t *testing.T) {
+	s := NewDomainSet()
+	s.Set([]string{"Beta.test", "alpha.test", "sub.alpha.test", "alpha.test"})
+
+	got := s.List(2)
+	want := []string{"alpha.test", "beta.test"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("List(2) = %v, want %v", got, want)
+	}
+	got[0] = "changed.test"
+	if again := s.List(1); !reflect.DeepEqual(again, []string{"alpha.test"}) {
+		t.Fatalf("List result should not alias the set, got %v", again)
+	}
+	if got := s.List(0); len(got) != 0 {
+		t.Fatalf("List(0) = %v, want empty", got)
+	}
+}
+
 func TestAllowRuleBeatsPack(t *testing.T) {
 	e := NewEngine()
-	pack := &ListPack{ID: "games", Category: CategoryGames}
+	pack := &ListPack{ID: "games", Name: "Games", Category: CategoryGames}
 	pack.Domains().Add("game.example")
 	e.AddPack(pack)
 
@@ -55,6 +74,15 @@ func TestAllowRuleBeatsPack(t *testing.T) {
 	if e.DomainBlocked(pol, "store.game.example") {
 		t.Error("allow rule should override the pack")
 	}
+
+	allow := e.Explain(pol, "store.game.example")
+	if allow.Blocked || allow.Source != DecisionCustomAllow || allow.MatchedDomain != "store.game.example" {
+		t.Fatalf("allow explanation = %+v", allow)
+	}
+	blocked := e.Explain(pol, "play.game.example")
+	if !blocked.Blocked || blocked.Source != DecisionPack || blocked.PackID != "games" || blocked.PackName != "Games" || blocked.MatchedDomain != "game.example" {
+		t.Fatalf("pack explanation = %+v", blocked)
+	}
 }
 
 func TestCustomBlock(t *testing.T) {
@@ -65,5 +93,31 @@ func TestCustomBlock(t *testing.T) {
 	}
 	if e.DomainBlocked(pol, "unrelated.test") {
 		t.Error("unrelated domain should not be blocked")
+	}
+	blocked := e.Explain(pol, "a.tracker.test")
+	if !blocked.Blocked || blocked.Source != DecisionCustomBlock || blocked.MatchedDomain != "tracker.test" {
+		t.Fatalf("custom block explanation = %+v", blocked)
+	}
+	allowed := e.Explain(pol, "unrelated.test")
+	if allowed.Blocked || allowed.Source != DecisionNone {
+		t.Fatalf("unmatched explanation = %+v", allowed)
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	cases := map[string]string{
+		"HTTPS://WWW.YouTube.com/feed": "www.youtube.com",
+		"example.com:443":              "example.com",
+		" example.com. ":               "example.com",
+		"-bad.example":                 "",
+		"bad-.example":                 "",
+		"bad_label.example":            "",
+		"localhost":                    "",
+		"192.168.1.1":                  "",
+	}
+	for in, want := range cases {
+		if got := NormalizeDomain(in); got != want {
+			t.Errorf("NormalizeDomain(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

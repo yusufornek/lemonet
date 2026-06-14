@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +37,11 @@ func blocklistCacheDir() string {
 // temp file + rename so a partial download never replaces a good cache. Returns errNotModified on
 // HTTP 304. The caller reads listPath afterward regardless.
 func fetchList(url, listPath string) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	return fetchListWithClient(&http.Client{Timeout: fetchTimeout}, url, listPath)
+}
+
+func fetchListWithClient(client *http.Client, url, listPath string) error {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -48,7 +53,7 @@ func fetchList(url, listPath string) error {
 		}
 	}
 
-	resp, err := (&http.Client{Timeout: fetchTimeout}).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -83,7 +88,12 @@ func fetchList(url, listPath string) error {
 		return err
 	}
 	if etag := resp.Header.Get("ETag"); etag != "" {
-		_ = os.WriteFile(listPath+".etag", []byte(etag), 0o644)
+		_ = os.WriteFile(listPath+".etag", []byte(etag), 0o600)
 	}
 	return nil
+}
+
+func removeListCache(path string) {
+	_ = os.Remove(path)
+	_ = os.Remove(path + ".etag")
 }
