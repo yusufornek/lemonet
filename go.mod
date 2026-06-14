@@ -3,7 +3,7 @@ module github.com/yusufornek/lemonet
 go 1.26.2
 
 require (
-	github.com/gopacket/gopacket v1.6.0
+	github.com/gopacket/gopacket v1.6.1
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/jackpal/gateway v1.2.0
 	github.com/miekg/dns v1.1.72
